@@ -1,6 +1,6 @@
 /**
  * Votazione CTL Baskin — voto online anonimo, un voto per società
- * v27 — Google Apps Script legato a un Foglio Google
+ * v42 — Google Apps Script legato a un Foglio Google
  *
  * Codice sorgente: https://github.com/UncleDan/votazione-ctl-baskin
  * Copyright (c) 2026 Daniele Lolli (UncleDan) — Licenza MIT (vedi LICENSE)
@@ -21,7 +21,7 @@
  *          commissari eletti ricevono codice e link e si apre il voto per il
  *          Presidente, chiuso a sua volta a tempo con calcolo finale.
  * Formatore di riferimento: indicato senza votazione (Config).
- * Report, Riepilogo urna per il custode, link al codice sorgente.
+ * Verbale, Riepilogo urna per il custode, link al codice sorgente.
  *
  * Anonimato: le schede sono salvate nelle Script Properties (non nel foglio,
  * quindi senza cronologia versioni), senza codice né orario, e inserite in
@@ -29,19 +29,20 @@
  */
 
 const SH = {
-  CONFIG: 'Config', SOC: 'Società', SQ: 'Squadre', CAND: 'Candidati', RIS: 'Risultati',
+  CONFIG: 'Config', CHK: 'Checklist', SOC: 'Società', SQ: 'Squadre', CAND: 'Candidati', RIS: 'Risultati',
   COM: 'Commissari', BAL: 'Ballottaggio', RB: 'Risultati ballottaggi',
-  RP: 'Risultati Presidente', RV: 'Risultati Vice', REP: 'Report', URNA: 'Riepilogo urna',
-  MSG: 'Messaggi'
+  RP: 'Risultati Presidente', RV: 'Risultati Vice', REP: 'Verbale', URNA: 'Riepilogo urna',
+  MSG: 'Messaggi', CONF: 'Conferme'
 };
 const REPO_URL = 'https://github.com/UncleDan/votazione-ctl-baskin';
-const VERSIONE = 'v27';
+const VERSIONE = 'v42';
 const LOGO_SVG = 'https://eisi.it/wp-content/uploads/2026/09/logo-eisi-epp-cip.svg';
 const LOGO_PNG = 'https://eisi.it/wp-content/uploads/2026/09/logo-eisi-epp-cip.png';
 const PROPRIETA_LOGO = 'Logo © Ente Italiano Sport Inclusivi (EISI), tutti i diritti riservati';
 const P_SALT = 'SALT';
 const P_AVVISO = 'AVVISO_APERTURA';   // una sola mail di apertura per contesto
-const P_MSG = 'MSG_CTX';              // per quale round e preparato il foglio "Messaggi"
+const P_MSG = 'MSG_CTX';
+const P_CONF = 'CONF_CTX';           // di che conferma parla il foglio "Conferme"              // per quale round e preparato il foglio "Messaggi"
 const MAX_BALLOTTAGGI = 3;
 const ROUND = {
   1: { nome: 'Commissari CTL', ballots: 'BALLOTS', used: 'USED', ric: 'RIC', prefisso: 'Stai votando per la società: ' },
@@ -50,15 +51,25 @@ const ROUND = {
 };
 const SOC_HEADER = ['Società', 'Codice', 'Link diretto di voto', 'Ha votato', 'Nome breve', 'Email', 'Codice affiliazione'];
 const SQ_HEADER = ['Squadra', 'Società'];
-const CAND_HEADER = ['Candidato', 'Qualifica', 'Squadra', 'Anni tesseramento/incarichi (spareggio)', 'Note', 'Email'];
-const COM_HEADER = ['Commissario', 'Qualifica', 'Squadra', 'Codice', 'Link diretto di voto', 'Votato Presidente', 'Votato Vice', 'Email'];
+const CAND_HEADER = ['Candidato', 'Qualifica', 'Squadra', 'Anni tesseramento/incarichi (spareggio)', 'Note', 'Email', 'Rinuncia'];
+/*
+ * L'ultima colonna dei commissari si chiama "Rinuncia alla carica" e non
+ * "Rinuncia": qui si rinuncia a fare il Presidente o il Vice, restando
+ * commissari. Chi rinuncia all'incarico in Commissione si spunta nel foglio
+ * "Candidati", perche e li che il posto scorre al primo dei non eletti - e
+ * perche questo foglio si riscrive da capo a ogni "Prepara commissari".
+ */
+const COM_HEADER = ['Commissario', 'Qualifica', 'Squadra', 'Codice', 'Link diretto di voto', 'Votato Presidente', 'Votato Vice', 'Email', 'Rinuncia alla carica'];
 const BAL_HEADER = ['Votante', 'Codice ballottaggio', 'Link diretto di voto', 'Ha votato'];
 const RIS_HEADER = ['Posizione', 'Candidato', 'Qualifica', 'Squadra', 'Preferenze', 'Anni (spareggio)', 'Esito', 'Note'];
 const MSG_HEADER = ['Destinatario', 'Codice', 'Email', 'Messaggio da copiare e incollare', 'Rimanda'];
+const CONF_HEADER = ['Destinatario', 'Email', 'Riguarda', 'Messaggio da copiare e incollare', 'Da inviare'];
+const CHK_HEADER = ['Fatto', 'Cosa fare', 'Note'];
+const A4_CHECKLIST = [50, 520, 160];
 const LETTERE = 'ABCDEFGH';      // codici: 4 lettere A–H
 const CIFRE = '0123456789';      // + 4 cifre, nel formato XXXX-9999
 const FUSO = 'Europe/Rome';
-const TRIGGER_FN = ['triggerApreCommissari', 'triggerChiudeCommissari', 'triggerAprePresidente', 'triggerChiudePresidente', 'triggerChiudeBallottaggio'];
+const TRIGGER_FN = ['triggerApreCommissari', 'triggerChiudeCommissari', 'triggerAprePresidente', 'triggerChiudePresidente', 'triggerChiudeBallottaggio', 'triggerSollecito'];
 const LOG_ = [];                 // messaggi raccolti quando si lavora senza interfaccia (trigger)
 const QUALIFICHE = ['Allenatore', 'Aiuto allenatore', 'Altro'];
 // L'autocandidatura non e una qualifica ma un modo di arrivare in lista: si indica
@@ -69,6 +80,10 @@ const INTERFACCE = ['Semplice', 'HTML'];   // una sola attiva per votazione
 const CFG_INTERFACCIA = 'Interfaccia di voto';
 const CFG_URL_HTML = 'Indirizzo interfaccia HTML';
 const CFG_MITTENTE = 'Mittente email';
+const CFG_SCADENZA = 'Scadenza per le conferme';
+const CFG_ORE_INCARICO = 'Ore per confermare l\'incarico';
+const CFG_INDIRIZZO = 'Indirizzo per le candidature';
+const CFG_SOLLECITI = 'Solleciti prima della chiusura (ore)';
 
 /* ================= Menu ================= */
 
@@ -102,6 +117,14 @@ function onOpen() {
       .addItem('Programma apertura e chiusura', 'programmaVotazioni')
       .addItem('Mostra pianificazione', 'mostraPianificazione')
       .addItem('Annulla pianificazione', 'annullaPianificazione'))
+    .addSubMenu(ui.createMenu('Richieste e conferme')
+      .addItem('1. Apri la raccolta delle candidature', 'richiestaCandidature')
+      .addItem('2. Chiedi conferma delle candidature', 'preparaConferme')
+      .addItem('3. Chiedi ai commissari se accettano l\'incarico', 'preparaConfermeCommissari')
+      .addSeparator()
+      .addItem('Chiedi candidati alle società senza commissario', 'richiestaCandidatureScoperte')
+      .addSeparator()
+      .addItem('Invia le richieste per email…', 'inviaConferme'))
     .addSubMenu(ui.createMenu('Messaggi ai votanti')
       .addItem('Prepara i messaggi del round attivo', 'preparaMessaggiMenu')
       .addItem('Prepara i messaggi per il Presidente', 'messaggiPresidente')
@@ -114,8 +137,9 @@ function onOpen() {
       .addItem('Usa la pagina web (HTML)…', 'usaInterfacciaHtml')
       .addItem('Mostra interfaccia attiva e indirizzi', 'mostraInterfaccia'))
     .addSeparator()
+    .addItem('Checklist della procedura', 'mostraChecklist')
     .addItem('Aggiorna partecipazione', 'aggiornaPartecipazione')
-    .addItem('Aggiorna report', 'aggiornaReport')
+    .addItem('Aggiorna verbale', 'aggiornaReport')
     .addItem('Aggiorna riepilogo urna', 'aggiornaUrna')
     .addSubMenu(ui.createMenu('Azzeramenti')
       .addItem('Solo i risultati, stessi codici…', 'azzeraRisultati')
@@ -209,7 +233,11 @@ function setup() {
     ['Logo fogli (PNG)', LOGO_PNG, 'URL del logo nei resoconti: i fogli Google non mostrano SVG, serve PNG/JPG. Vuoto = nessun logo'],
     [CFG_INTERFACCIA, 'HTML', 'Da dove si vota: Semplice = app Google; HTML = pagina su GitHub Pages. Una sola per votazione, gestita dal menu'],
     [CFG_URL_HTML, '', 'Indirizzo della pagina su GitHub Pages. Serve solo con l\'interfaccia HTML: entra nei link inviati ai votanti'],
-    [CFG_MITTENTE, '', 'Nome del mittente delle email ai votanti. Vuoto = "Sezione Territoriale Baskin EISI " piu la Sezione. L\'indirizzo resta quello del tuo account Google']
+    [CFG_MITTENTE, '', 'Nome del mittente delle email ai votanti. Vuoto = "Sezione Territoriale Baskin EISI " piu la Sezione. L\'indirizzo resta quello del tuo account Google'],
+    [CFG_SCADENZA, '', 'Entro quando rispondere alle richieste di candidatura e conferma (testo libero, es. "venerdi 7 novembre"). Compare nel messaggio'],
+    [CFG_ORE_INCARICO, '6', 'Quante ore hanno i commissari eletti per confermare l\'incarico. Il messaggio riporta data e ora precise'],
+    [CFG_INDIRIZZO, '', 'Indirizzo a cui le societa mandano candidature e conferme. Vuoto = l\'account che possiede il foglio'],
+    [CFG_SOLLECITI, '4, 2', 'Quante ore prima della chiusura mandare il promemoria a chi non ha votato. Separate da virgola, vuoto = nessun sollecito']
   ].forEach(r => ensureCfgRow_(r[0], r[1], r[2]));
   cfgCell_(CFG_INTERFACCIA).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(INTERFACCE, true).setAllowInvalid(false).build());
@@ -217,6 +245,8 @@ function setup() {
   ['Apertura voto commissari', 'Chiusura voto commissari', 'Apertura voto presidente', 'Chiusura voto presidente']
     .forEach(k => cfgCell_(k).setNumberFormat('dd/mm/yyyy hh:mm'));
 
+  migraNomiFogli_(ss);
+  cfgRename_('Scadenza conferma candidature', CFG_SCADENZA);
   assicuraIntestazione_(ensureSheet_(ss, SH.SOC, SOC_HEADER), SOC_HEADER);
   ensureSheet_(ss, SH.SQ, SQ_HEADER);
   const cand = assicuraIntestazione_(ensureSheet_(ss, SH.CAND, CAND_HEADER), CAND_HEADER);
@@ -227,6 +257,7 @@ function setup() {
   assicuraIntestazione_(ensureSheet_(ss, SH.COM, COM_HEADER), COM_HEADER);
   ensureSheet_(ss, SH.RIS, RIS_HEADER);
   ensureSheet_(ss, SH.MSG, MSG_HEADER);
+  ensureSheet_(ss, SH.CONF, CONF_HEADER);
   const brevi = riempiNomiBrevi_();
   if (brevi) avvisi.push(brevi + ' societa senza "Nome breve": per ora vale la ragione sociale. ' +
     'Accorcialo nel foglio "Societa" (ultima colonna): e il nome che vedono i votanti, nei messaggi e nei resoconti.');
@@ -237,7 +268,12 @@ function setup() {
   const doppie = societaDoppie_();
   if (doppie.length) avvisi.push('Ogni societa puo presentare un solo candidato, e queste ne hanno piu di uno:\n' +
     doppie.join('\n') + '\n\nRitira i candidati in eccesso nel foglio "Candidati": il round 1 non si apre finche restano.');
-  const nCand = candidatiRound_(1, cfg_()).length;
+  const tuttiCand = candidatiRound_(1, cfg_());
+  const rinunce = tuttiCand.filter(x => x.rinuncia).map(x => x.nome);
+  if (rinunce.length) avvisi.push('Hanno dichiarato che non accetterebbero l\'incarico: ' + rinunce.join(', ') +
+    '.\nRestano sulla scheda e i loro voti si contano, ma non occupano un posto: nei risultati sono segnati ' +
+    'RINUNCIA e il posto scorre al candidato successivo.');
+  const nCand = tuttiCand.filter(x => !x.rinuncia).length;
   if (nCand && candidatiMancanti_()) avvisi.push(testoPochiCandidati_(nCand));
 
   applicaValidazioni_();
@@ -245,17 +281,19 @@ function setup() {
   if (!props.getProperty(P_SALT)) props.setProperty(P_SALT, Utilities.getUuid());
   const nuovi = assegnaCodiciMancanti_();   // codici univoci XXXX-9999 a chi non ne ha
   if (nuovi) avvisi.push(nuovi + ' società senza codice: codice e link assegnati ora.');
-  // Report, Riepilogo urna e Messaggi non si aggiornano da soli: la loro
+  // Verbale, Riepilogo urna e Messaggi non si aggiornano da soli: la loro
   // impaginazione (e le colonne nuove) nascono quando vengono riscritti, quindi
   // li si rifa qui. Senza questo, dopo un aggiornamento di versione i fogli
   // restano com'erano e sembra che il programma non sia cambiato.
   dopoAzzeramento_();
+  ordinaFogli_();
   ui_().alert(
     'Fogli pronti.\n\n1) "Società": una riga per società (una riga = un voto).\n' +
     '2) "Squadre": squadra e società di appartenenza.\n' +
     '3) "Candidati": nome, qualifica, squadra, anni.\n' +
     '4) Round 1 → "Genera codici e link mancanti".\n\n' +
-    'Report, Riepilogo urna e Messaggi sono stati rigenerati con questa versione (' + VERSIONE + ').' +
+    'Verbale, Riepilogo urna, Checklist e Messaggi sono stati rigenerati con questa versione (' + VERSIONE + ').\n' +
+    'Nel foglio "' + SH.CHK + '", subito dopo "' + SH.CONFIG + '", c\'e la procedura passo per passo da spuntare.' +
     (avvisi.length ? '\n\n' + avvisi.join('\n\n') : ''));
 }
 
@@ -330,6 +368,44 @@ function assicuraIntestazione_(sh, header) {
   return sh;
 }
 
+/** Rinomina i fogli che hanno cambiato nome fra una versione e l'altra. */
+function migraNomiFogli_(ss) {
+  const vecchi = { 'Report': SH.REP, 'Conferme candidature': SH.CONF };
+  Object.keys(vecchi).forEach(v => {
+    const sh = ss.getSheetByName(v);
+    if (sh && !ss.getSheetByName(vecchi[v])) sh.setName(vecchi[v]);
+  });
+  // "Rinuncia" -> "Rinuncia alla carica": il valore resta, cambia solo il nome
+  const com = ss.getSheetByName(SH.COM), n = COM_HEADER.length;
+  if (com && com.getLastColumn() >= n &&
+      String(com.getRange(1, n).getValue()).trim().toLowerCase() === 'rinuncia')
+    com.getRange(1, n).setValue(COM_HEADER[n - 1]);
+}
+
+/**
+ * Ordine delle schede in fondo al foglio: prima i dati da compilare, poi i
+ * documenti da leggere, poi quello che serve durante la votazione, infine i
+ * risultati e i messaggi. I fogli non ancora creati si saltano, e quelli che
+ * non sono in elenco (aggiunti a mano) restano in coda dove sono.
+ */
+const ORDINE_FOGLI = [SH.CONFIG, SH.CHK, SH.SOC, SH.SQ, SH.CONF, SH.CAND, SH.REP, SH.URNA,
+  SH.BAL, SH.COM, SH.RIS, SH.RP, SH.RV, SH.RB, SH.MSG];
+
+function ordinaFogli_() {
+  const ss = SpreadsheetApp.getActive();
+  let attivo = null;
+  try { attivo = ss.getActiveSheet(); } catch (e) {}
+  let pos = 0;
+  ORDINE_FOGLI.forEach(n => {
+    const sh = ss.getSheetByName(n);
+    if (!sh) return;
+    pos++;
+    try { ss.setActiveSheet(sh); ss.moveActiveSheet(pos); } catch (e) {}
+  });
+  if (attivo) { try { ss.setActiveSheet(attivo); } catch (e) {} }
+  return pos;
+}
+
 function ensureSheet_(ss, name, header) {
   let sh = ss.getSheetByName(name);
   if (sh) return sh;
@@ -373,6 +449,14 @@ function applicaValidazioni_() {
     SpreadsheetApp.newDataValidation().requireTextIsEmail().setAllowInvalid(true).build());
   if (h.email) cand.getRange(2, h.email, n, 1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireTextIsEmail().setAllowInvalid(true).build());
+  if (h.rinuncia) cand.getRange(2, h.rinuncia, n, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireCheckbox().build());
+  if (soc.getMaxColumns() >= 1 && SpreadsheetApp.getActive().getSheetByName(SH.COM)) {
+    const com = sheet_(SH.COM);
+    if (com.getMaxColumns() >= COM_HEADER.length)
+      com.getRange(2, COM_HEADER.length, Math.max(com.getMaxRows() - 1, 1), 1).setDataValidation(
+        SpreadsheetApp.newDataValidation().requireCheckbox().build());
+  }
 }
 
 /* ================= Round 1: codici società ================= */
@@ -556,7 +640,11 @@ function preparaMessaggiRound_(r) {
     'Il link dentro il messaggio e gia quello personale.\n\n' +
     'Il messaggio c\'e per tutti, anche per chi non ha un indirizzo email: quelli si mandano per chat o per telefono.' +
     (senza.length ? '\n\nSenza indirizzo email (' + senza.length + '): ' + senza.join(', ') : '') +
-    '\n\nPer rimandare una mail a qualcuno, spunta la casella "Rimanda" sulla sua riga e usa ' +
+    '\n\nNESSUNA MAIL È STATA INVIATA: qui si preparano soltanto. Per mandarle usa "Messaggi ai votanti → ' +
+    'Invia per email a chi ha l\'indirizzo", che prima ti mostra oggetto e destinatari e chiede conferma: ' +
+    'finché non rispondi di sì non parte niente.\n\n' +
+    'All\'apertura del round, invece, l\'avviso con il link parte da solo a chi ha un indirizzo.\n\n' +
+    'Per rimandare una mail a qualcuno, spunta la casella "Rimanda" sulla sua riga e usa ' +
     '"Messaggi ai votanti → Rimanda le email spuntate".');
 }
 
@@ -896,13 +984,426 @@ function testoMessaggio_(c, x, nome, codice) {
   r.push('');
   r.push('IMPORTANTE — Dopo aver depositato la scheda compare una RICEVUTA, un codice tipo 7K2M-94QD. ' +
     (soc ? 'Fatele' : 'Falle') + ' subito uno screenshot, oppure ' + (soc ? 'trascrivetela' : 'trascrivila') +
-    ': non è recuperabile, chiusa la pagina non la conosce più nessuno. A spoglio concluso ' +
-    (soc ? 'la ritroverete' : 'la ritroverai') + ' nel riepilogo dell\'urna, e vorrà dire che ' +
-    (soc ? 'la vostra scheda è' : 'la tua scheda è') + ' stata contata. La ricevuta non dice come ' +
+    ': non è recuperabile, chiusa la pagina non la conosce più nessuno. ' +
+    (soc ? 'La ritroverete' : 'La ritroverai') + ' nel riepilogo dell\'urna — anche prima della chiusura — e vorrà ' +
+    'dire che ' + (soc ? 'la vostra scheda è' : 'la tua scheda è') + ' stata contata. La ricevuta non dice come ' +
     (soc ? 'avete' : 'hai') + ' votato: è proprio questo che tiene il voto anonimo.');
   r.push('');
   r.push('Il programma è pubblico e verificabile da chiunque: ' + REPO_URL);
   return r.join('\n');
+}
+
+/* ================= Richieste e conferme ================= */
+
+/**
+ * La coda di ogni avviso di preparazione. Preparare non e inviare, ma il foglio
+ * si riempie di messaggi gia spuntati e sembra che siano partiti: meglio dirlo
+ * a chiare lettere, invece di lasciarlo capire.
+ */
+function nienteInviato_(colonna, voce) {
+  return '\n\nNESSUNA MAIL È STATA INVIATA: qui si preparano soltanto. Rileggi i testi e togli la spunta "' +
+    colonna + '" a chi non vuoi scrivere, poi usa "' + voce + '". Prima di partire ti mostra oggetto e ' +
+    'destinatari e chiede conferma: finché non rispondi di sì non parte niente.';
+}
+
+/** La coda per le richieste del foglio "Conferme": stessa colonna, stessa voce. */
+function nienteInviatoConf_() {
+  return nienteInviato_('Da inviare', 'Richieste e conferme → Invia le richieste per email');
+}
+
+/**
+ * Scrive le richieste nel foglio "Conferme" e ricorda di che richiesta si
+ * tratta: l'oggetto della mail dipende da questo, e il foglio e sempre lo
+ * stesso perche di richieste in giro ce n'e una alla volta.
+ */
+function scriviConferme_(ss, righe, quale) {
+  const sh = svuotaFoglio_(ss, SH.CONF, CONF_HEADER);
+  if (righe.length) {
+    sh.getRange(2, 1, righe.length, CONF_HEADER.length).setValues(righe);
+    sh.getRange(2, 4, righe.length, 1).setWrap(true).setVerticalAlignment('top');
+    sh.getRange(2, 5, righe.length, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireCheckbox().build()).setHorizontalAlignment('center');
+  }
+  [220, 230, 220, 600, 90].forEach((w, i) => sh.setColumnWidth(i + 1, w));
+  PropertiesService.getScriptProperties().setProperty(P_CONF, quale);
+  sh.activate();
+  return sh;
+}
+
+/**
+ * Apre la raccolta: chiede a ogni societa di presentare il suo candidato.
+ * E il primo passo di tutta la procedura, prima ancora della conferma e del
+ * voto. Non c'e nessun modulo: basta una mail all'indirizzo della Sezione
+ * Territoriale, ed e qui che si dice cosa deve contenere.
+ */
+function richiestaCandidature() {
+  const ss = SpreadsheetApp.getActive(), c = cfg_();
+  if (!ss.getSheetByName(SH.SOC) || numSocieta_() === 0)
+    return ui_().alert('Nessuna societa in elenco: compila prima il foglio "Societa".');
+  const mail = emailPerNome_();
+  const righe = nomiSocieta_().map(nome => [nome, String(mail[nome] || '').trim(),
+    'Richiesta di candidatura', testoRichiesta_(c, nome), true]);
+  scriviConferme_(ss, righe, 'apertura');
+
+  const senza = righe.filter(r => !r[1]).map(r => r[0]);
+  const gia = candidati_().length;
+  ui_().alert('Richieste di candidatura pronte',
+    righe.length + ' messaggi nel foglio "' + SH.CONF + '", uno per societa.\n\n' +
+    'Chiedono di presentare un candidato — uno per societa — con nome, qualifica, squadra e anni, ' +
+    'per mail' + (indirizzoST_(c) ? ' a ' + indirizzoST_(c) : ' alla Sezione Territoriale') + '. ' +
+    'Le candidature che arrivano le scrivi tu nel foglio "' + SH.CAND + '", anche doppie o dubbie: ' +
+    'poi con "Chiedi conferma delle candidature" fai ricontrollare a ciascuno quello che la riguarda.' +
+    (gia ? '\n\nNel foglio "' + SH.CAND + '" ci sono gia ' + gia + ' nomi: se stai riaprendo la raccolta, ' +
+      'controlla che siano quelli giusti.' : '') +
+    (senza.length ? '\n\nSenza indirizzo email: ' + senza.join(', ') + '. Da contattare per un altro canale.' : '') +
+    nienteInviatoConf_(),
+    ui_().ButtonSet.OK);
+  return righe.length;
+}
+
+/** Il testo della richiesta iniziale: cosa serve, entro quando, dove mandarlo. */
+function testoRichiesta_(c, nome) {
+  const titolo = String(c['Titolo'] || 'Elezione CTL Baskin');
+  const dove = intestazione_(c);
+  const scadenza = String(c[CFG_SCADENZA] || '').trim();
+  const a = indirizzoST_(c) ? ' a ' + indirizzoST_(c) : ' alla Sezione Territoriale';
+  const posti = posti_(c);
+  const r = [];
+  r.push(titolo + (dove ? ' — ' + dove : ''));
+  r.push('');
+  r.push('Ciao ' + nome + ', si apre la raccolta delle candidature per la Commissione Tecnica Locale.');
+  r.push('');
+  r.push('La Commissione sarà composta da ' + posti + ' commissari, eletti dalle società con un voto per società. ' +
+    'Ogni società può presentare UN SOLO candidato.');
+  r.push('');
+  r.push('Non c\'è nessun modulo da compilare: basta una mail' + a + ' con');
+  r.push('• nome e cognome del candidato;');
+  r.push('• la qualifica: Allenatore, Aiuto allenatore o Altro;');
+  r.push('• la squadra per cui è tesserato o in cui opera;');
+  r.push('• gli anni di tesseramento o di incarichi nel baskin (servono solo in caso di parità di voti).');
+  r.push('');
+  r.push('Nella Commissione può entrare al massimo un Aiuto allenatore: tenetelo presente nella scelta, ' +
+    'ma presentate chi ritenete più adatto — il limite lo gestiamo noi in fase di assegnazione dei posti.');
+  r.push('');
+  r.push('Mandatecela' + (scadenza ? ' entro ' + scadenza : ' il prima possibile') +
+    '. Se scegliete di non presentare nessuno va benissimo, ma fatecelo sapere comunque con due righe: ' +
+    'così sappiamo che la mail è arrivata e non stiamo aspettando una risposta che non arriverà.');
+  r.push('');
+  r.push('Poi vi riscriveremo con i nominativi che ci risultano per la vostra società, per una conferma ' +
+    'prima di aprire il voto. Al voto riceverete un link riservato, valido una volta sola.');
+  r.push('');
+  r.push('Grazie.');
+  return r.join('\n');
+}
+
+/**
+ * Chiede un candidato alle societa che non hanno un commissario in Commissione.
+ * Serve quando la graduatoria non basta piu: dimissioni a Commissione gia
+ * costituita, o troppe rinunce in fase di costituzione. Il posto vacante va
+ * riassegnato, e chiederlo a chi non e rappresentato e il modo piu equo di
+ * riempirlo.
+ */
+function richiestaCandidatureScoperte() {
+  const ss = SpreadsheetApp.getActive(), c = cfg_();
+  if (!ss.getSheetByName(SH.SOC) || numSocieta_() === 0)
+    return ui_().alert('Nessuna societa in elenco: compila prima il foglio "Societa".');
+  const com = commissari_();
+  if (!com.length) return ui_().alert('Nessun commissario in elenco',
+    'Questa richiesta serve a coprire un posto rimasto vacante in una Commissione già costituita.\n\n' +
+    'Se la Commissione non c\'è ancora, usa "1. Apri la raccolta delle candidature": va a tutte le società.',
+    ui_().ButtonSet.OK);
+  const s = societaScoperte_();
+  if (!s.scoperte.length) return ui_().alert('Tutte le società sono rappresentate',
+    'Ogni società in elenco ha già un commissario non rinunciatario.\n\n' +
+    'Se serve comunque un candidato, la richiesta va fatta a mano, oppure apri la raccolta a tutte le società.',
+    ui_().ButtonSet.OK);
+  const mail = emailPerNome_();
+  const righe = s.scoperte.map(nome => [nome, String(mail[nome] || '').trim(),
+    'Candidatura per un posto vacante', testoRichiestaScoperta_(c, nome, s.vacanti), true]);
+  scriviConferme_(ss, righe, 'scoperte');
+
+  const senza = righe.filter(r => !r[1]).map(r => r[0]);
+  ui_().alert('Richieste pronte per le società senza commissario',
+    righe.length + ' messaggi nel foglio "' + SH.CONF + '": ' + s.scoperte.join(', ') + '.\n\n' +
+    'Posti da coprire: ' + s.vacanti + ' su ' + posti_(c) + ' (in Commissione ci sono ' + s.dentro +
+    ' commissari non rinunciatari).\n\n' +
+    'Le candidature che arrivano le scrivi nel foglio "' + SH.CAND + '", poi si torna al voto: ' +
+    '"Azzera un round" sul round 1 e di nuovo "Apri il round 1". Se invece la CTN concede la deroga, ' +
+    'non serve votare: annota la deroga nel Verbale.' +
+    (s.fuori.length ? '\n\nCommissari non attribuibili a nessuna società in elenco (squadra non in "' + SH.SQ +
+      '"): ' + s.fuori.join(', ') + '. Controlla, oppure la loro società risulta scoperta per sbaglio.' : '') +
+    (senza.length ? '\n\nSenza indirizzo email: ' + senza.join(', ') + '. Da contattare per un altro canale.' : '') +
+    nienteInviatoConf_(),
+    ui_().ButtonSet.OK);
+  return righe.length;
+}
+
+/**
+ * Chi non ha un commissario in Commissione. Un rinunciatario non copre la sua
+ * societa: il posto e vacante, e la societa non e rappresentata.
+ */
+function societaScoperte_() {
+  const sq = mappaSquadraSocieta_();
+  const coperte = {}, fuori = [];
+  let dentro = 0;
+  commissari_().forEach(x => {
+    if (x.rinuncia) return;
+    dentro++;
+    const s = sq[x.squadra] || '';
+    if (s) coperte[s] = true; else fuori.push(x.nome);
+  });
+  return { scoperte: nomiSocieta_().filter(n => !coperte[n]), dentro: dentro, fuori: fuori,
+    vacanti: Math.max(0, posti_(cfg_()) - dentro) };
+}
+
+/** Il testo per le societa scoperte: perche si richiede, e cosa serve. */
+function testoRichiestaScoperta_(c, nome, vacanti) {
+  const titolo = String(c['Titolo'] || 'Elezione CTL Baskin');
+  const dove = intestazione_(c);
+  const scadenza = String(c[CFG_SCADENZA] || '').trim();
+  const a = indirizzoST_(c) ? ' a ' + indirizzoST_(c) : ' alla Sezione Territoriale';
+  const r = [];
+  r.push(titolo + (dove ? ' — ' + dove : ''));
+  r.push('');
+  r.push('Ciao ' + nome + ', nella Commissione Tecnica Locale ' +
+    (vacanti === 1 ? 'è rimasto vacante un posto' : 'sono rimasti vacanti ' + vacanti + ' posti') +
+    ' e la graduatoria delle riserve non basta a coprirlo' + (vacanti === 1 ? '' : 'i') + '.');
+  r.push('');
+  r.push('La vostra società non ha un proprio commissario in Commissione, quindi vi chiediamo se volete ' +
+    'presentare un candidato.');
+  r.push('');
+  r.push('Come la prima volta, non c\'è nessun modulo: basta una mail' + a + ' con');
+  r.push('• nome e cognome del candidato;');
+  r.push('• la qualifica: Allenatore, Aiuto allenatore o Altro;');
+  r.push('• la squadra per cui è tesserato o in cui opera;');
+  r.push('• gli anni di tesseramento o di incarichi nel baskin.');
+  r.push('');
+  r.push('Una sola candidatura per società.');
+  r.push('');
+  r.push('Rispondete' + (scadenza ? ' entro ' + scadenza : ' il prima possibile') +
+    ' anche solo per dire che non presentate nessuno: serve a sapere se possiamo chiudere la raccolta. ' +
+    'Raccolte le candidature si torna al voto delle società, con le stesse regole di prima.');
+  r.push('');
+  r.push('Grazie.');
+  return r.join('\n');
+}
+
+/**
+ * Prima di aprire la votazione si chiede a ogni societa di confermare le
+ * candidature che risultano a noi. Si raccoglie tutto, anche i doppioni e le
+ * righe dubbie, si manda a ciascuno quello che la riguarda - note comprese,
+ * perche e li che si scrive "ne risultano due" o "manca il requisito" - e si
+ * sistema l'elenco a mano con le risposte in mano.
+ * La richiesta va anche a chi non ha candidati: e il modo per accorgersi di un
+ * modulo che si e perso per strada.
+ */
+function preparaConferme() {
+  const ss = SpreadsheetApp.getActive(), c = cfg_();
+  if (!ss.getSheetByName(SH.SOC) || numSocieta_() === 0)
+    return ui_().alert('Nessuna societa in elenco: compila prima il foglio "Societa".');
+  const sq = mappaSquadraSocieta_();            // squadra -> nome breve della societa
+  const perSoc = {}, fuori = [];
+  candidati_().forEach(k => {
+    const s = k.auto ? '' : (sq[k.squadra] || '');
+    if (!s) return fuori.push(k);
+    (perSoc[s] = perSoc[s] || []).push(k);
+  });
+  const mail = emailPerNome_();
+  const righe = nomiSocieta_().map(nome => {
+    const lista = perSoc[nome] || [];
+    return [nome, String(mail[nome] || '').trim(),
+      'Candidature: ' + (lista.map(k => k.nome).join(', ') || 'nessuna'),
+      testoConferma_(c, nome, lista), true];
+  });
+  scriviConferme_(ss, righe, 'candidature');
+
+  const doppie = Object.keys(perSoc).filter(s => perSoc[s].length > 1);
+  const vuote = righe.filter(r => /: nessuna$/.test(r[2])).map(r => r[0]);
+  const senza = righe.filter(r => !r[1]).map(r => r[0]);
+  ui_().alert('Richieste di conferma pronte',
+    righe.length + ' messaggi nel foglio "' + SH.CONF + '", uno per societa.\n\n' +
+    'Ogni messaggio elenca i candidati di quella societa con le loro note: scrivi nelle Note del foglio ' +
+    '"Candidati" quello che vuoi far sapere (doppione, requisito mancante, dato da verificare) e rigenera.' +
+    (doppie.length ? '\n\nCon piu di un candidato: ' + doppie.join(', ') + '. Il messaggio glielo fa notare.' : '') +
+    (vuote.length ? '\n\nSenza candidature: ' + vuote.join(', ') + '. Ricevono comunque la richiesta: serve ad ' +
+      'accorgersi di un modulo perso.' : '') +
+    (fuori.length ? '\n\nFuori da ogni societa (autocandidature o squadra non in elenco): ' +
+      fuori.map(k => k.nome).join(', ') + '. Questi li confermi tu, direttamente con loro.' : '') +
+    (senza.length ? '\n\nSenza indirizzo email: ' + senza.join(', ') + '. Da contattare per un altro canale.' : '') +
+    nienteInviatoConf_(),
+    ui_().ButtonSet.OK);
+  return righe.length;
+}
+
+/** Il testo della richiesta: cosa risulta a noi, e cosa ci si aspetta in risposta. */
+function testoConferma_(c, nome, lista) {
+  const titolo = String(c['Titolo'] || 'Elezione CTL Baskin');
+  const dove = intestazione_(c);
+  const scadenza = String(c[CFG_SCADENZA] || '').trim();
+  const r = [];
+  r.push(titolo + (dove ? ' — ' + dove : ''));
+  r.push('');
+  r.push('Ciao ' + nome + ', prima di aprire la votazione vi chiediamo di confermare le candidature ' +
+    'che risultano a noi per la vostra società.');
+  r.push('');
+  const dove2 = indirizzoST_(c);
+  const a = dove2 ? ' a ' + dove2 : ' alla Sezione Territoriale';
+  if (!lista.length) {
+    r.push('Dalla vostra società NON risulta nessuna candidatura.');
+    r.push('');
+    r.push('Se ce l\'avete mandata e non la vediamo, riscriveteci subito: è il momento per rimediare. ' +
+      'E se volete presentarne una adesso, siete ancora in tempo — non c\'è nessun modulo da compilare, ' +
+      'basta una mail' + a + ' con nome e cognome del candidato, la qualifica (Allenatore, Aiuto allenatore ' +
+      'o Altro), la squadra e gli anni di tesseramento o di incarichi.');
+    r.push('');
+    r.push('Se invece avete scelto di non presentare nessuno va benissimo: basta un cenno di conferma.');
+  } else {
+    r.push(lista.length === 1 ? 'Risulta questa candidatura:' : 'Risultano queste ' + lista.length + ' candidature:');
+    lista.forEach(k => {
+      r.push('');
+      r.push('• ' + k.nome + ' — ' + (k.qualifica || 'qualifica non indicata') +
+        ' — ' + (k.squadra || 'squadra non indicata') + (k.anni ? ' — ' + k.anni + ' anni' : ''));
+      if (k.note) r.push('  Nota: ' + k.note);
+    });
+    r.push('');
+    if (lista.length > 1) {
+      r.push('ATTENZIONE: ogni società può presentare UN SOLO candidato, e qui ne risultano ' + lista.length +
+        '. Indicateci quale confermate: gli altri verranno ritirati.');
+      r.push('');
+    }
+    r.push('Confermate, correggete o ritirate' + (scadenza ? ' entro ' + scadenza : '') +
+      ' rispondendo a questo messaggio, oppure scrivendo' + a + '. Non c\'è nessun modulo da compilare: ' +
+      'basta una mail. Senza risposta vale quanto scritto sopra.');
+  }
+  r.push('');
+  r.push('Grazie, e a presto con i link per votare.');
+  return r.join('\n');
+}
+
+/**
+ * Chiede ai commissari eletti se accettano l'incarico, prima di aprire il voto
+ * per il Presidente. Finche il Presidente non e eletto una rinuncia si risolve
+ * con lo scorrimento della graduatoria; dopo diventa un problema.
+ * La richiesta va a tutti quelli che sono nel foglio: chi ha gia rinunciato
+ * all'incarico non c'e piu, perche il suo posto e scorso. La spunta "Rinuncia
+ * alla carica" riguarda solo Presidenza e Vice, quindi non esclude nessuno:
+ * viene solo segnalata.
+ */
+function preparaConfermeCommissari() {
+  const ss = SpreadsheetApp.getActive(), c = cfg_();
+  const da = commissari_();
+  if (!da.length) return ui_().alert('Nessun commissario: usa prima "Round 2 → Prepara commissari e link".');
+  const gia = da.filter(x => x.rinuncia).map(x => x.nome);
+  const voti = {};
+  try { datiRound1_(c).lista.forEach(x => voti[x.nome] = x.voti); } catch (e) { /* senza spoglio, nessun numero */ }
+  const mail = emailPerNome_();
+  const righe = da.map(x => [x.nome, String(mail[x.nome] || '').trim(), 'Accettazione incarico in CTL',
+    testoConfermaIncarico_(c, x, voti[x.nome]), true]);
+  scriviConferme_(ss, righe, 'commissari');
+
+  const senza = righe.filter(r => !r[1]).map(r => r[0]);
+  ui_().alert('Richieste di conferma pronte',
+    righe.length + ' messaggi nel foglio "' + SH.CONF + '", uno per commissario eletto.\n\n' +
+    'Chiedono di confermare l\'incarico prima di aprire il voto per il Presidente: finche il Presidente non e ' +
+    'eletto, una rinuncia si risolve con lo scorrimento della graduatoria e non serve rivotare.\n\n' +
+    'Chi rinuncia all\'incarico: spunta la sua casella "Rinuncia" nel foglio "' + SH.CAND + '" — non in "' + SH.COM +
+    '", che si riscrive da capo — poi "Round 1 → Calcola risultati" e infine "Prepara commissari e link". ' +
+    'Il posto scorre al primo dei non eletti.' +
+    (gia.length ? '\n\nSegnati come "' + COM_HEADER[COM_HEADER.length - 1] + '": ' + gia.join(', ') +
+      '. Ricevono comunque la richiesta: quella spunta riguarda Presidenza e Vice, non il posto in Commissione.' : '') +
+    (senza.length ? '\n\nSenza indirizzo email: ' + senza.join(', ') + '. Da sentire per un altro canale.' : '') +
+    nienteInviatoConf_(),
+    ui_().ButtonSet.OK);
+  return righe.length;
+}
+
+/** Il testo della richiesta ai commissari: cosa e successo, e cosa serve sapere. */
+/**
+ * Quante ore hanno i commissari per rispondere. Poche, e con data e ora
+ * precise: "entro venerdi" si rimanda, "entro le 18:30 di oggi" no. Il voto per
+ * il Presidente aspetta quella risposta, quindi la finestra e stretta apposta.
+ */
+function scadenzaIncarico_(c) {
+  const n = Number(String((c || cfg_())[CFG_ORE_INCARICO] || '').replace(',', '.'));
+  const ore = n > 0 ? n : 6;
+  return { ore: ore, quando: new Date(new Date().getTime() + ore * 3600000) };
+}
+
+function testoConfermaIncarico_(c, x, voti) {
+  const titolo = String(c['Titolo'] || 'Elezione CTL Baskin');
+  const dove = intestazione_(c);
+  const s = scadenzaIncarico_(c);
+  const r = [];
+  r.push(titolo + (dove ? ' — ' + dove : ''));
+  r.push('');
+  r.push('Ciao ' + x.nome + ', lo spoglio è concluso: risulti ELETTO nella Commissione Tecnica Locale' +
+    (voti ? ', con ' + voti + (voti === 1 ? ' preferenza' : ' preferenze') : '') + '.');
+  r.push('');
+  r.push('Prima di aprire il voto per il Presidente ti chiediamo di confermare che accetti l\'incarico.');
+  r.push('');
+  r.push('Se per qualsiasi motivo non puoi accettarlo, è il momento di dirlo: finché il Presidente non è eletto ' +
+    'il posto passa al primo dei non eletti seguendo la graduatoria, senza bisogno di tornare al voto. ' +
+    'Dopo diventa molto più complicato, e qualche volta si deve rivotare.');
+  r.push('');
+  r.push('Rispondi a questo messaggio con un sì o un no entro ' + s.ore +
+    (s.ore === 1 ? ' ora' : ' ore') + ', cioè entro il ' + dataTesto_(s.quando) +
+    '. Il voto per il Presidente aspetta queste risposte, quindi la finestra è stretta: ' +
+    'senza risposta consideriamo l\'incarico accettato.');
+  r.push('');
+  r.push('Subito dopo riceverai il link per votare il Presidente e, a seguire, il Vice.');
+  return r.join('\n');
+}
+
+/** Manda le richieste di conferma alle righe spuntate del foglio "Conferme". */
+function inviaConferme() {
+  const ui = ui_(), c = cfg_();
+  const sh = SpreadsheetApp.getActive().getSheetByName(SH.CONF);
+  if (!sh || sh.getLastRow() < 2) return ui.alert('Nessuna richiesta preparata: usa prima una delle voci di ' +
+    '"Richieste e conferme" (raccolta, conferma delle candidature o accettazione dell\'incarico).');
+  const righe = sh.getRange(2, 1, sh.getLastRow() - 1, CONF_HEADER.length).getValues()
+    .filter(r => String(r[0]).trim() && r[4] === true);
+  if (!righe.length) return ui.alert('Nessuna riga spuntata nella colonna "Da inviare".');
+  const con = [], senza = [], finti = [];
+  righe.forEach(r => {
+    const v = vaglia_(r[1]);
+    if (v.sbagliati.length) senza.push(r[0] + ' (non valido: ' + v.sbagliati.join(', ') + ')');
+    if (v.buoni.length) return con.push({ nome: r[0], email: v.buoni.join(','), testo: String(r[3]) });
+    if (v.finti.length) return finti.push(r[0]);
+    if (!v.sbagliati.length) senza.push(r[0]);
+  });
+  const restano = (senza.length ? '\n\nSenza indirizzo valido, da contattare a mano: ' + senza.join(', ') : '') +
+    (finti.length ? '\n\nIndirizzi di prova, li salto: ' + finti.join(', ') : '');
+  if (!con.length) return ui.alert('Nessun indirizzo a cui scrivere',
+    'Compila la colonna "Email" del foglio "Societa", poi rifai le richieste.' + restano, ui.ButtonSet.OK);
+  let quota = 0;
+  try { quota = MailApp.getRemainingDailyQuota(); } catch (e) { quota = con.length; }
+  if (quota < con.length) return ui.alert('Quota email insufficiente',
+    'Da mandare: ' + con.length + '. Restano per oggi: ' + quota + '.', ui.ButtonSet.OK);
+  const quale = String(PropertiesService.getScriptProperties().getProperty(P_CONF) || 'candidature');
+  const code = {
+    apertura: ' — candidature aperte per la CTL',
+    scoperte: ' — serve un candidato per la CTL',
+    candidature: ' — conferma delle candidature',
+    commissari: ' — accetti l\'incarico in CTL?'
+  };
+  const oggetto = String(c['Titolo'] || 'Elezione CTL Baskin') + (code[quale] || code.candidature);
+  if (ui.alert(quale === 'apertura' || quale === 'scoperte' ? 'Richiesta di candidatura' : 'Richiesta di conferma',
+    'Mando ' + con.length + ' email dal tuo account Google, con oggetto:\n' + oggetto +
+    '\n\nA: ' + con.map(v => v.nome).join(', ') + restano +
+    '\n\nNon contengono link di voto: chiedono solo una risposta. Procedere?',
+    ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  const mittente = mittente_(c);
+  let fatte = 0;
+  const errori = [];
+  con.forEach(v => {
+    try { MailApp.sendEmail({ to: v.email, subject: oggetto, body: v.testo, name: mittente }); fatte++; }
+    catch (err) { errori.push(v.nome + ': ' + ((err && err.message) || err)); }
+  });
+  const n = sh.getLastRow() - 1;
+  sh.getRange(2, 5, n, 1).setValues(Array.from({ length: n }, () => [false]));
+  ui.alert(fatte + ' richieste inviate.' + restano +
+    (errori.length ? '\n\nNon partite: ' + errori.join('\n') : '') +
+    '\n\nLe spunte "Da inviare" sono state tolte: per rimandare a qualcuno, rispunta la sua riga.');
 }
 
 /* ================= Dati di prova ================= */
@@ -1127,6 +1628,7 @@ function chiudiVotazione() {
   const r = roundAttivo_(c0);
   eliminaTrigger_(ballottaggioAttivo_(c0) ? 'triggerChiudeBallottaggio'
     : r === 2 ? 'triggerChiudePresidente' : r === 1 ? 'triggerChiudeCommissari' : null);
+  eliminaTrigger_('triggerSollecito');
   setCfg_('Stato', 'CHIUSA');
   aggiornaPartecipazione();
   aggiornaUrna();
@@ -1157,25 +1659,47 @@ function preparaCommissari() {
   const eletti = v.filter(r => /^ELETT/i.test(String(r[iE])) && String(r[iN]).trim());
   if (!eletti.length) { ui.alert('Nessun eletto in "Risultati".'); return false; }
 
+  // Una rinuncia spuntata nel foglio "Candidati" vale solo dopo un nuovo
+  // spoglio: finche "Risultati" dice ELETTO, il posto non e ancora scorso.
+  const rin = {};
+  candidati_().forEach(x => { if (x.rinuncia) rin[x.nome] = true; });
+  const daRicalcolare = eletti.map(r => String(r[iN]).trim()).filter(n => rin[n]);
+  if (daRicalcolare.length) {
+    ui.alert('Prima ricalcola i risultati',
+      'Nel foglio "' + SH.CAND + '" risulta la rinuncia di: ' + daRicalcolare.join(', ') +
+      '.\n\nIn "' + SH.RIS + '" però compare ancora ELETTO, quindi il posto non è ancora scorso al primo dei ' +
+      'non eletti.\n\nLancia "Round 1 → Calcola risultati" e poi ripeti questa voce.', ui.ButtonSet.OK);
+    return false;
+  }
+
   const sh = sheet_(SH.COM);
-  const vecchi = {}, vecchieMail = emailCommissari_(), mailCand = {};
+  const vecchi = {}, vecchieCarica = {}, vecchieMail = emailCommissari_(), mailCand = {};
   candidati_().forEach(x => { if (x.email) mailCand[x.nome] = x.email; });
-  commissari_().forEach(x => { if (x.codice) vecchi[x.nome] = x.codice; });
+  commissari_().forEach(x => {
+    if (x.codice) vecchi[x.nome] = x.codice;
+    if (x.rinuncia) vecchieCarica[x.nome] = true;   // rinuncia alla carica: non si perde
+  });
   const usati = codiciEsistenti_();
   const rows = eletti.map(r => {
     const nome = String(r[iN]).trim();
     const cod = vecchi[nome] || codiceNuovo_(usati);
     return [nome, String(r[iQ]).trim(), String(r[iS]).trim(), cod, link_(cod), '', '',
-      vecchieMail[nome] || mailCand[nome] || ''];
+      vecchieMail[nome] || mailCand[nome] || '', vecchieCarica[nome] === true];
   });
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, COM_HEADER.length).clearContent();
   sh.getRange(2, 1, rows.length, COM_HEADER.length).setValues(rows);
   sh.autoResizeColumns(1, COM_HEADER.length);
   sh.activate();
   aggiornaReport();
+  const carica = rows.filter(r => r[COM_HEADER.length - 1] === true).map(r => r[0]);
   ui.alert(rows.length + ' commissari pronti.' + (link_('X')
     ? '\nInvia a ciascuno il SUO link: vale sia per il Presidente sia per il Vice.'
-    : '\nLink non disponibili: pubblica prima l\'app web.'));
+    : '\nLink non disponibili: pubblica prima l\'app web.') +
+    (carica.length ? '\n\nRestano segnati come "' + COM_HEADER[COM_HEADER.length - 1] + '": ' + carica.join(', ') +
+      '. Sono commissari a tutti gli effetti, ma non accettano Presidenza o Vice.' : '') +
+    '\n\nQuesto foglio si riscrive da capo a ogni "Prepara commissari e link": l\'unica cosa scritta a mano che ' +
+    'conserva sono gli indirizzi email e le spunte "' + COM_HEADER[COM_HEADER.length - 1] + '". ' +
+    'Chi rinuncia all\'incarico in Commissione si spunta nel foglio "' + SH.CAND + '".');
   return true;
 }
 
@@ -1286,6 +1810,12 @@ function messaggioParita_(r, tie) {
 function assegna_(lista, posti, maxAiuti) {
   const esito = {};
   lista.forEach(x => esito[x.nome] = { esito: 'Non eletto', nota: '' });
+  // Chi ha rinunciato esce dall'assegnazione ma resta nei risultati con i suoi
+  // voti: toglierli falserebbe il conteggio di schede che sono state davvero
+  // depositate. Il posto non va perso, scorre al primo dei non eletti.
+  lista.filter(x => x.rinuncia).forEach(x => esito[x.nome] = {
+    esito: 'RINUNCIA', nota: 'Ha dichiarato che non accetterebbe l\'incarico: il posto scorre al candidato successivo' });
+  const gioco = lista.filter(x => !x.rinuncia);
   let tie = null;
 
   function eleggi(arr, n, nota) {
@@ -1310,8 +1840,8 @@ function assegna_(lista, posti, maxAiuti) {
     return n;
   }
 
-  const A = lista.filter(x => !x.aiuto);
-  const B = lista.filter(x => x.aiuto);
+  const A = gioco.filter(x => !x.aiuto);
+  const B = gioco.filter(x => x.aiuto);
   const daA = eleggi(A, posti, '');
   const resto = posti - daA;
   let daB = 0;
@@ -1337,11 +1867,14 @@ function datiCarica_(r, c) {
     .sort((a, b) => b.voti - a.voti || b.anni - a.anni || a.nome.localeCompare(b.nome, 'it'));
   const esito = {};
   lista.forEach(x => esito[x.nome] = { esito: '', nota: '' });
+  lista.filter(x => x.rinuncia).forEach(x => esito[x.nome] = {
+    esito: 'RINUNCIA', nota: 'Ha dichiarato che non accetterebbe l\'incarico' });
+  const gioco = lista.filter(x => !x.rinuncia);
   let tie = null;
-  if (lista.length && lista[0].voti > 0) {
-    const g = lista.filter(x => pari_(x, lista[0]));
+  if (gioco.length && gioco[0].voti > 0) {
+    const g = gioco.filter(x => pari_(x, gioco[0]));
     if (g.length === 1) {
-      esito[lista[0].nome] = { esito: 'ELETTO', nota: (lista.length > 1 && lista[1].voti === lista[0].voti) ? 'Pari voti: precedenza per anni' : '' };
+      esito[gioco[0].nome] = { esito: 'ELETTO', nota: (gioco.length > 1 && gioco[1].voti === gioco[0].voti) ? 'Pari voti: precedenza per anni' : '' };
     } else {
       tie = { candidati: g.map(x => x.nome), posti: 1 };
       g.forEach(x => esito[x.nome] = { esito: 'PARITÀ — da risolvere', nota: 'Pari voti e pari anni: ballottaggio' });
@@ -1669,6 +2202,9 @@ function programmaVotazioni() {
   else if (p.ap1) righe.push('Apertura voto commissari già passata: aprilo a mano dal menu.');
   if (p.ch1 && p.ch1 > min) { creaTrigger_('triggerChiudeCommissari', p.ch1); righe.push('Chiude il voto commissari: ' + dataTesto_(p.ch1)); }
   else if (p.ch1) righe.push('Chiusura voto commissari già passata: non programmata.');
+  const sol = creaSolleciti_(p.ch1 && p.ch1 > min ? p.ch1 : null);
+  righe.push(sol.length ? 'Promemoria a chi non ha votato: ' + sol.join(' e ') + ' ore prima della chiusura'
+    : 'Promemoria a chi non ha votato: nessuno (vedi Config → "' + CFG_SOLLECITI + '")');
   righe.push(p.ap2 ? 'Apre il voto presidente: ' + dataTesto_(p.ap2) : 'Apre il voto presidente: subito dopo la chiusura del voto commissari');
   righe.push(p.ch2 ? 'Chiude il voto presidente: ' + dataTesto_(p.ch2) : 'Chiusura voto presidente: non programmata (manuale)');
   righe.push('');
@@ -1723,6 +2259,78 @@ function mancanti_(r, b) {
  * Chiusura programmata di un round: chiude solo se hanno votato tutti,
  * altrimenti proroga e avvisa. Restituisce true se il round è stato chiuso.
  */
+/** Le ore di anticipo dei solleciti, dalla piu lontana alla piu vicina (max 4). */
+function oreSolleciti_(c) {
+  return String((c || cfg_())[CFG_SOLLECITI] || '').split(/[,;\s]+/)
+    .map(x => parseFloat(String(x).replace(',', '.')))
+    .filter(x => x > 0).sort((a, b) => b - a).slice(0, 4);
+}
+
+/**
+ * Programma i promemoria a chi non ha ancora votato, a N ore dalla chiusura.
+ * Puntano tutti alla stessa funzione: un trigger per ogni anticipo indicato in
+ * Config. Si rifanno da capo ogni volta che la chiusura cambia (anche per
+ * proroga), e si saltano gli anticipi gia passati.
+ */
+function creaSolleciti_(fine) {
+  eliminaTrigger_('triggerSollecito');
+  if (!fine) return [];
+  const limite = new Date(new Date().getTime() + 60000);
+  const fatti = [];
+  oreSolleciti_(cfg_()).forEach(h => {
+    const q = new Date(fine.getTime() - h * 3600000);
+    if (q > limite) { ScriptApp.newTrigger('triggerSollecito').timeBased().at(q).create(); fatti.push(h); }
+  });
+  return fatti;
+}
+
+/** Codice -> nome di chi non ha ancora votato nel contesto indicato. */
+function nonVotanti_(r, b) {
+  const used = usati_(r, b || 0), map = votantiMap_(r, b || 0), out = {};
+  Object.keys(map).forEach(k => { if (used.indexOf(hash_(k)) < 0) out[k] = map[k]; });
+  return out;
+}
+
+/**
+ * Promemoria automatico: manda il link a chi non ha ancora votato, poche ore
+ * prima della chiusura. Non parte se la votazione e chiusa, se la chiusura non
+ * e programmata o se hanno gia votato tutti.
+ */
+function triggerSollecito() {
+  LOG_.length = 0;
+  const c = cfg_();
+  if (!aperta_(c)) return;
+  const x = contesto_(c);
+  if (x.errore) return;
+  const fine = scadenzaContesto_(c, x);
+  if (!fine || fine <= new Date()) return;
+  const map = nonVotanti_(x.r, x.b);
+  const quanti = Object.keys(map).length;
+  if (!quanti) return;
+  const ore = Math.max(1, Math.round((fine.getTime() - new Date().getTime()) / 3600000));
+  const esito = spedisci_(c, x, map, oggetto_(c, x, 'mancano ' + ore + (ore === 1 ? ' ora' : ' ore') + ' per votare'),
+    function (c2, x2, nome, cod) { return testoSollecito_(c2, x2, nome, cod, fine); });
+  notifica_('Promemoria inviato a chi non ha votato',
+    'Mancano ' + ore + (ore === 1 ? ' ora' : ' ore') + ' alla chiusura di "' + ROUND[x.r].nome +
+    (x.b ? ' — ballottaggio ' + x.b : '') + '", prevista il ' + dataTesto_(fine) + '.\n\n' +
+    'Non avevano ancora votato in ' + quanti + '. Promemoria inviati: ' + esito.fatte + '.' +
+    (esito.senza.length ? '\n\nSenza indirizzo, da sollecitare a mano: ' + esito.senza.join(', ') : '') +
+    (esito.errori.length ? '\n\nNon partiti: ' + esito.errori.join('; ') : ''));
+}
+
+/** La chiusura programmata del contesto in corso, se c'e. */
+function scadenzaContesto_(c, x) {
+  if (x.b) return null;                       // i ballottaggi chiudono a ore, non a data fissa
+  const p = pianificazione_(c);
+  return x.r === 1 ? p.ch1 : x.r === 2 ? p.ch2 : null;
+}
+
+/** Il messaggio di sempre, con davanti la riga che dice quanto manca. */
+function testoSollecito_(c, x, nome, codice, fine) {
+  return 'Promemoria: ' + (x.r === 1 ? 'dalla vostra società' : 'da te') + ' non risulta ancora una scheda, ' +
+    'e la votazione si chiude il ' + dataTesto_(fine) + '.\n\n' + testoMessaggio_(c, x, nome, codice);
+}
+
 function chiusuraProgrammata_(r, b, fnTrigger, chiaveCfg) {
   const c = cfg_();
   const mancano = mancanti_(r, b);
@@ -1731,6 +2339,7 @@ function chiusuraProgrammata_(r, b, fnTrigger, chiaveCfg) {
   const nuova = new Date(new Date().getTime() + ore * 3600000);
   if (chiaveCfg) setCfg_(chiaveCfg, nuova);
   creaTrigger_(fnTrigger, nuova);
+  creaSolleciti_(nuova);
   notifica_('Mancano voti: chiusura prorogata',
     'La votazione "' + ROUND[r].nome + (b ? ' — ballottaggio ' + b : '') + '" doveva chiudersi ora, ma non hanno ancora votato tutti.\n\n' +
     'Non hanno votato (' + mancano.length + '):\n· ' + mancano.join('\n· ') + '\n\n' +
@@ -1781,7 +2390,10 @@ function proseguiDopoRound1_() {
     return;
   }
   apriRound_(2);
-  if (p.ch2 && p.ch2 > new Date(new Date().getTime() + 60000)) creaTrigger_('triggerChiudePresidente', p.ch2);
+  if (p.ch2 && p.ch2 > new Date(new Date().getTime() + 60000)) {
+    creaTrigger_('triggerChiudePresidente', p.ch2);
+    creaSolleciti_(p.ch2);
+  }
   notifica_('Commissari eletti: voto Presidente aperto',
     'Hanno votato tutte le società. I commissari eletti sono:\n' + elenco +
     '\n\nIl voto per il Presidente è aperto' + (p.ch2 ? ' e si chiuderà il ' + dataTesto_(p.ch2) : '') +
@@ -1794,7 +2406,10 @@ function triggerAprePresidente() {
   if (aperta_(c)) return;
   apriRound_(2);
   const p = pianificazione_(cfg_());
-  if (p.ch2 && p.ch2 > new Date(new Date().getTime() + 60000)) creaTrigger_('triggerChiudePresidente', p.ch2);
+  if (p.ch2 && p.ch2 > new Date(new Date().getTime() + 60000)) {
+    creaTrigger_('triggerChiudePresidente', p.ch2);
+    creaSolleciti_(p.ch2);
+  }
   const elenco = commissari_().map(x => '· ' + x.nome + ' — codice ' + x.codice + (link_(x.codice) ? ' — ' + link_(x.codice) : ' — link non disponibile (pubblica l\'app web)')).join('\n');
   notifica_(aperta_(cfg_()) ? 'Voto Presidente aperto' : 'Voto Presidente NON aperto',
     (aperta_(cfg_()) ? 'Il voto per il Presidente è aperto' + (p.ch2 ? ', chiusura prevista il ' + dataTesto_(p.ch2) : '') + '.\n\n'
@@ -1937,7 +2552,131 @@ function triggerChiudeBallottaggio() {
   if (r === 1) proseguiDopoRound1_(); else concludiPresidente_();
 }
 
-/* ================= Report ================= */
+/* ================= Verbale ================= */
+
+/* ================= Checklist operativa ================= */
+
+/**
+ * La procedura dall'inizio alla fine, dentro al file: il documento a parte si
+ * va a cercare proprio il giorno in cui servirebbe averlo gia sotto gli occhi.
+ * Le voci citate sono quelle del menu, nell'ordine in cui si usano.
+ */
+function vociChecklist_() {
+  const S = t => ({ s: t });        // intestazione di sezione
+  const V = t => ({ t: t });        // riga da spuntare
+  return [
+    S('0. Prima di cominciare'),
+    V('Versione allineata: "Interfaccia di voto → Mostra interfaccia attiva e indirizzi" dice la versione del codice salvato, e in fondo alla pagina di voto compare quella servita. Se non coincidono: Distribuisci → Gestisci distribuzioni → matita → Nuova versione. Salvare l\'editor non basta.'),
+    V('"Inizializza / aggiorna fogli": aggiunge colonne e parametri nuovi, rimette i fogli in ordine, rigenera Verbale, Riepilogo urna e Messaggi. Leggi gli avvisi finali.'),
+    V('Una sola interfaccia attiva: o la pagina web, o la app Google. Chi arriva dall\'altra trova un cartello con l\'indirizzo giusto.'),
+    V('Config compilato: Titolo senza "(PROVA)", Sezione Territoriale, Anno sportivo, Numero eletti (vuoto = metà delle società, da 3 a 6), Max preferenze, Max aiuti allenatore, Email avvisi, Mittente email, Indirizzo per le candidature, Scadenza per le conferme, Ore per confermare l\'incarico, Solleciti prima della chiusura.'),
+
+    S('1. Candidature: raccolta e conferma'),
+    V('"Richieste e conferme → 1. Apri la raccolta delle candidature", poi "Invia le richieste per email". Nessun modulo: si risponde per mail all\'indirizzo della Sezione.'),
+    V('Trascrivi nel foglio "Candidati" TUTTO quello che arriva, doppioni e righe incomplete comprese. Nelle Note scrivi perché una riga è dubbia: le Note finiscono nella mail di conferma.'),
+    V('"Richieste e conferme → 2. Chiedi conferma delle candidature", poi invia. Rileggi i testi prima di mandare.'),
+    V('Aggiorna il foglio "Candidati" a mano con le risposte.'),
+    V('Vincoli: una società un solo candidato; candidati almeno quanti i posti; nomi distinguibili. Li ricontrolla "Inizializza / aggiorna fogli", e il round 1 non si apre se qualcosa non torna.'),
+    V('Email dei candidati compilate: quando uno risulta eletto, "Prepara commissari e link" se le porta dietro.'),
+
+    S('2. Round 1 — Commissari'),
+    V('"Round 1 → Genera codici e link mancanti".'),
+    V('Colonna Email del foglio "Società" completa. Più referenti nella stessa cella, separati da virgola.'),
+    V('"Messaggi ai votanti → Prepara i messaggi del round attivo", e rileggi una riga: link, codice, numero di preferenze.'),
+    V('Apertura: "Round 1 → Apri", oppure date in Config + "Votazioni programmate → Programma apertura e chiusura" (le date da sole non bastano). Verifica con "Mostra pianificazione".'),
+    V('All\'apertura l\'avviso email parte da solo a chi ha un indirizzo: non aprire "per provare" dopo aver messo gli indirizzi veri.'),
+    V('Avvisa a mano chi non ha email, e prova tu la pagina con un codice vero.'),
+    V('Durante il voto: "Aggiorna partecipazione" per sapere chi manca; casella "Rimanda" + "Rimanda le email spuntate" per chi dice di non aver ricevuto niente.'),
+    V('"Round 1 → Chiudi", poi "Round 1 → Calcola risultati".'),
+    V('Nessun "PARITÀ" nella colonna Esito di "Risultati". Se c\'è, vai al punto 3.'),
+
+    S('3. Ballottaggio — solo in caso di parità'),
+    V('"Ballottaggio → Prepara ballottaggio e nuovi link": i codici vecchi non valgono più.'),
+    V('Prepara i messaggi e mandali: è il passaggio che si dimentica.'),
+    V('"Ballottaggio → Apri", "Chiudi", "Calcola ballottaggio". Fino a tre giri.'),
+    V('Dopo tre giri senza esito: "Ballottaggio → Sorteggia la parità residua". L\'esito resta registrato con data e ora.'),
+
+    S('4. Round 2 — Presidente'),
+    V('"Round 2 → Prepara commissari e link". Il foglio "Commissari" si riscrive da capo: conserva solo email e spunte "Rinuncia alla carica".'),
+    V('Completa gli indirizzi mancanti nel foglio "Commissari".'),
+    V('"Richieste e conferme → 3. Chiedi ai commissari se accettano l\'incarico", e manda. La risposta si chiede entro poche ore: il voto per il Presidente aspetta.'),
+    V('Chi risponde di no: spunta "Rinuncia" nel foglio "Candidati" (NON in "Commissari"), poi "Round 1 → Calcola risultati", poi di nuovo "Prepara commissari e link".'),
+    V('"Messaggi ai votanti → Prepara i messaggi per il Presidente", e mandali.'),
+    V('"Round 2 → Apri", poi "Chiudi", poi "Calcola risultati".'),
+
+    S('5. Round 3 — Vice'),
+    V('"Config → Presidente" valorizzato: il round 3 parte da lì ed esclude il Presidente dalla lista.'),
+    V('"Messaggi ai votanti → Prepara i messaggi per il Vice", e mandali. Stesso codice del round 2: non si rigenera niente.'),
+    V('"Round 3 → Apri", poi "Chiudi", poi "Calcola risultati".'),
+
+    S('6. Chiusura dei lavori'),
+    V('"Aggiorna verbale" e "Aggiorna riepilogo urna".'),
+    V('Nel Riepilogo urna, per ogni round: "Controllo OK: schede = codici usati". Se leggi ANOMALIA, fermati.'),
+    V('Rileggi nel Verbale la graduatoria finale: eletti, riserve nell\'ordine di subentro, rinunce in coda. Serve il giorno delle dimissioni.'),
+    V('Stampa per il verbale: Verbale, Riepilogo urna, Risultati, Risultati Presidente, Risultati Vice e, se ci sono stati, Risultati ballottaggi. Foglio corrente · A4 · Verticale · 100%.'),
+    V('Comunica l\'esito alle società, ricordando che nel Riepilogo urna ciascuna ritrova la propria ricevuta. Manda il PDF, non il foglio Google: contiene codici e indirizzi.'),
+
+    S('7. Dopo: dimissioni e posti vacanti'),
+    V('Dimissioni: subentra il primo dei non eletti seguendo la graduatoria del Verbale (prima allenatori e "Altro", gli aiuti solo entro il limite).'),
+    V('Se la graduatoria non basta: deroga della CTN da annotare nel Verbale, oppure "Richieste e conferme → Chiedi candidati alle società senza commissario" e si torna al voto.')
+  ];
+}
+
+/**
+ * Scrive la checklist nel foglio, conservando spunte e note gia messe: sono
+ * l'unica cosa tua che c'e dentro, e perderle rigenerando sarebbe come
+ * cancellare gli appunti a meta lavoro. L'abbinamento e sul testo della riga.
+ */
+function aggiornaChecklist() {
+  const ss = SpreadsheetApp.getActive(), c = cfg_();
+  const sh = ss.getSheetByName(SH.CHK) || ss.insertSheet(SH.CHK);
+  const vecchie = {};
+  if (sh.getLastRow() > 1 && sh.getLastColumn() >= 3)
+    sh.getRange(1, 1, sh.getLastRow(), 3).getValues().forEach(r => {
+      const k = String(r[1]).trim();
+      if (k) vecchie[k] = { fatto: r[0] === true, note: String(r[2] == null ? '' : r[2]) };
+    });
+  sh.clear();
+  try { sh.getRange(1, 1, sh.getMaxRows(), 3).setDataValidation(null); } catch (e) {}
+
+  const voci = vociChecklist_();
+  const rows = [[String(c['Titolo'] || 'Elezione CTL') + (intestazione_(c) ? ' — ' + intestazione_(c) : '') +
+    ' — Checklist operativa', '', ''], ['', '', ''], CHK_HEADER.slice()];
+  const sezioni = [], spunte = [];
+  voci.forEach(v => {
+    if (v.s) { sezioni.push(rows.length + 1); rows.push(['', v.s, '']); return; }
+    const o = vecchie[v.t] || { fatto: false, note: '' };
+    spunte.push(rows.length + 1);
+    rows.push([o.fatto === true, v.t, o.note]);
+  });
+  const nFine = rows.length + 2;
+  rows.push(['', '', ''], ['', '', '']);
+  altezzeRighe_(sh);
+  sh.getRange(1, 1, rows.length, 3).setValues(rows);
+  sh.getRange(1, 1).setFontWeight('bold').setFontSize(14);
+  sh.getRange(3, 1, 1, 3).setFontWeight('bold').setBackground(BLU);
+  sh.setFrozenRows(3);
+  sezioni.forEach(r => sh.getRange(r, 1, 1, 3).setFontWeight('bold').setBackground(BLU));
+  spunte.forEach(r => sh.getRange(r, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireCheckbox().build()).setHorizontalAlignment('center'));
+  scriviPiede_(sh, nFine, c);
+  formatoA4_(sh, nFine + 2, A4_CHECKLIST);
+  return spunte.length;
+}
+
+/** Voce di menu: scrive la checklist e ci porta sopra. */
+function mostraChecklist() {
+  const n = aggiornaChecklist();
+  ordinaFogli_();
+  const sh = SpreadsheetApp.getActive().getSheetByName(SH.CHK);
+  if (sh) sh.activate();
+  ui_().alert('Checklist aggiornata',
+    n + ' passi nel foglio "' + SH.CHK + '", subito dopo "' + SH.CONFIG + '".\n\n' +
+    'Spunta la colonna "Fatto" man mano e usa "Note" per quello che vuoi ricordarti ' +
+    '(date, chi manca, decisioni prese).\n\n' +
+    'Rigenerandola, spunte e note restano: vengono riconosciute dal testo del passo. ' +
+    'Per ripartire da zero in una nuova elezione c\'è "Azzeramenti → Tutto".', ui_().ButtonSet.OK);
+}
 
 function aggiornaReport() {
   const ss = SpreadsheetApp.getActive();
@@ -1964,9 +2703,11 @@ function aggiornaReport() {
     return st && st.storico.length ? ROUND[r].nome + ': ' + st.storico.length + (st.stato === 'risolto' ? ' (parità risolta)' : ' (parità aperta)') : '';
   }).filter(Boolean).join('; ');
 
-  const R = (a, b, c3, d) => [a, b || '', c3 || '', d || ''];
+  const W = 5;
+  const R = function () { const a = Array.prototype.slice.call(arguments).map(x => x == null ? '' : x);
+    while (a.length < W) a.push(''); return a.slice(0, W); };
   const rows = [
-    R(String(c['Titolo'] || 'Elezione CTL') + (intestazione_(c) ? ' — ' + intestazione_(c) : '') + ' — Report'),
+    R(String(c['Titolo'] || 'Elezione CTL') + (intestazione_(c) ? ' — ' + intestazione_(c) : '') + ' — Verbale'),
     R('Sezione Territoriale', sezione_(c) || '(non indicata)'),
     R('Anno sportivo', anno_(c) || '(non indicato)'),
     R('Aggiornato il', Utilities.formatDate(new Date(), 'Europe/Rome', 'dd/MM/yyyy HH:mm')),
@@ -1979,7 +2720,7 @@ function aggiornaReport() {
     R(''),
     R('Nome', 'Qualifica', 'Squadra', 'Ruolo')
   ];
-  const headRow = rows.length;
+  const teste = [rows.length];
   com.forEach(x => rows.push(R(x.nome, x.qualifica, x.squadra,
     ['Commissario', x.nome === pres ? 'Presidente' : '', x.nome === vice ? 'Vice' : '',
       x.nome === form ? 'Formatore di riferimento' : ''].filter(Boolean).join(' · '))));
@@ -1987,15 +2728,127 @@ function aggiornaReport() {
   if (form && nomiCom.indexOf(form) < 0)
     rows.push(R(form, '', candForm ? candForm.squadra : '', 'Formatore di riferimento (non votante, non componente CTL)'));
 
+  // --- graduatoria finale: serve per lo scorrimento in caso di dimissioni,
+  //     quindi va a verbale anche quando non c'e nessuna rinuncia.
+  graduatoria_(c).forEach(g => {
+    if (g.testa) teste.push(rows.length + 1);
+    rows.push(R.apply(null, g.riga));
+  });
+
   altezzeRighe_(sh);
   const o = scriviLogo_(sh, 1, c) ? 1 : 0;
-  sh.getRange(1 + o, 1, rows.length, 4).setValues(rows);
+  sh.getRange(1 + o, 1, rows.length, W).setValues(rows);
   sh.getRange(1 + o, 1).setFontWeight('bold').setFontSize(14);
   sh.getRange(6 + o, 1, 5, 1).setFontWeight('bold');
-  sh.getRange(headRow + o, 1, 1, 4).setFontWeight('bold').setBackground(BLU);
+  teste.forEach(i => sh.getRange(i + o, 1, 1, W).setFontWeight('bold').setBackground(BLU));
   scriviLinkRepo_(sh, rows.length + 2 + o);
-  formatoA4_(sh, rows.length + 2 + o, A4_LARGHEZZE);
+  formatoA4_(sh, rows.length + 2 + o, A4_REPORT);
 }
+
+/**
+ * Graduatoria finale del round 1, da mettere a verbale: e l'ordine in cui si
+ * scorre l'elenco se un commissario si dimette. Chi ha rinunciato sta in fondo,
+ * fuori dallo scorrimento, e fra piu rinunce vale l'ordine alfabetico.
+ * Restituisce righe gia pronte, vuoto finche non c'e nessuna scheda.
+ */
+function graduatoria_(c) {
+  let d;
+  try { d = datiRound1_(c); } catch (e) { return []; }
+  if (!d.lista.length || !d.schede.length) return [];
+  const pres = String(c['Presidente'] || '').trim(), vice = String(c['Vice'] || '').trim();
+  const maxA = maxAiuti_(c);
+  const voti = (a, b) => b.voti - a.voti || b.anni - a.anni || a.nome.localeCompare(b.nome, 'it');
+  const stato = x => String((d.ass.esito[x.nome] || {}).esito || '');
+  const vivi = d.lista.filter(x => !x.rinuncia);
+
+  // Tre blocchi, in quest'ordine: eletti, riserve, rinunce.
+  const eletti = vivi.filter(x => stato(x) === 'ELETTO').sort(voti);
+  const parita = vivi.filter(x => /^PARIT/i.test(stato(x))).sort(voti);
+  // Fra le riserve vale la stessa regola dell'elezione: allenatori e "Altro"
+  // per primi, gli aiuto allenatore solo quando non ne restano altri. Un
+  // allenatore con un voto solo subentra prima dell'aiuto piu votato.
+  const riserve = vivi.filter(x => stato(x) !== 'ELETTO' && !/^PARIT/i.test(stato(x)))
+    .sort((a, b) => (a.aiuto ? 1 : 0) - (b.aiuto ? 1 : 0) || voti(a, b));
+  const rinunce = d.lista.filter(x => x.rinuncia).sort((a, b) => a.nome.localeCompare(b.nome, 'it'));
+  const aiutiEletti = eletti.filter(x => x.aiuto).length;
+
+  const out = [];
+  out.push({ riga: [''] });
+  out.push({ riga: ['Graduatoria finale — ordine di scorrimento in caso di dimissioni'] });
+  out.push({ testa: true, riga: ['Pos.', 'Candidato', 'Squadra', 'Preferenze', 'Posizione in graduatoria'] });
+  // Un aiuto allenatore subentra solo quando non restano riserve allenatore o
+  // "Altro", e comunque fino al limite di aiuti in commissione. Oltre quel
+  // limite non si scorre: serve una deroga della CTN, oppure si rivota.
+  const postiAiuto = Math.max(0, maxA - aiutiEletti);
+  const riserveA = riserve.filter(x => !x.aiuto).length;
+  let usatiAiuto = 0;
+
+  // Dove due candidati vicini in graduatoria hanno le stesse preferenze, il
+  // verbale deve dire che cosa ne ha deciso l'ordine: gli anni di tesseramento,
+  // oppure il ballottaggio. Senza, righe con lo stesso numero di voti ed esiti
+  // diversi sembrano messe a caso. Vale per gli eletti e per le riserve, che
+  // sono l'ordine di subentro e quindi vanno giustificate allo stesso modo.
+  const ordinati = eletti.concat(parita, riserve);
+  const stessoPosto = (a, b) => a && b && !!a.aiuto === !!b.aiuto && a.voti === b.voti;
+  const aPari = {};
+  ordinati.forEach((x, k) => {
+    if (stessoPosto(ordinati[k - 1], x) || stessoPosto(x, ordinati[k + 1])) aPari[x.nome] = true;
+  });
+  const etichetta = x => {
+    const n = String((d.ass.esito[x.nome] || {}).nota || '');
+    if (/sorteggio/i.test(n)) return 'Sorteggio';
+    if (/ballottagg/i.test(n)) return 'Ballottaggio';
+    return x.anni + (x.anni === 1 ? ' anno' : ' anni');
+  };
+  const paro = x => aPari[x.nome] ? ' (' + etichetta(x) + ')' : '';
+  // il confine fra l'ultimo eletto e il primo escluso merita una riga a parte
+  const ultimo = eletti.length ? eletti[eletti.length - 1] : null;
+  const primaRiserva = riserve.length ? riserve[0] : null;
+  const confine = stessoPosto(ultimo, primaRiserva) ? etichetta(ultimo) : '';
+
+  let pos = 0, scorre = 0;
+  const riga = (x, testo) => out.push({ riga: [++pos, x.nome, x.squadra, x.voti, testo + paro(x)] });
+  eletti.forEach(x => riga(x, ['Commissario', x.nome === pres ? 'Presidente' : '', x.nome === vice ? 'Vice' : '',
+    x.aiuto ? 'aiuto allenatore (deroga)' : ''].filter(Boolean).join(' · ')));
+  parita.forEach(x => riga(x, 'Parità da risolvere'));
+  riserve.forEach(x => {
+    scorre++;
+    if (!x.aiuto) return riga(x, scorre + '° dei non eletti' + (scorre === 1 ? ' — subentra per primo' : ''));
+    const entro = usatiAiuto < postiAiuto;
+    if (entro) usatiAiuto++;
+    riga(x, scorre + '° dei non eletti — aiuto allenatore: ' + (entro
+      ? 'subentra solo se non restano allenatori o "Altro"'
+      : 'oltre il limite, subentra solo con deroga della CTN'));
+  });
+  rinunce.forEach(x => riga(x, 'Rinuncia — in coda, fuori dallo scorrimento'));
+
+  const sostituzioni = riserveA + Math.min(postiAiuto, riserve.length - riserveA);
+  out.push({ riga: [''] });
+  out.push({ riga: ['In caso di dimissioni di un commissario subentra il primo dei non eletti, seguendo quest\'ordine. ' +
+    'A pari preferenze precede chi ha più anni di tesseramento o incarichi.'] });
+  out.push({ riga: ['Vale la stessa regola dell\'elezione: prima gli allenatori e i candidati di qualifica "Altro", ' +
+    'anche con una sola preferenza; un aiuto allenatore subentra solo quando non ne restano, e comunque entro il ' +
+    'limite di ' + maxA + (maxA === 1 ? ' aiuto allenatore' : ' aiuti allenatore') + ' in commissione (ora ' +
+    aiutiEletti + ').'] });
+  if (Object.keys(aPari).length) out.push({ riga: ['Dove due o più candidati hanno le stesse preferenze, fra parentesi ' +
+    'c\'è quello che ne ha deciso l\'ordine: gli anni di tesseramento o incarichi, oppure il ballottaggio o il ' +
+    'sorteggio se si è arrivati fin lì. Vale anche fra le riserve, perché è l\'ordine con cui subentrano.'] });
+  if (confine) out.push({ riga: ['Sull\'ultimo posto l\'ultimo eletto e il primo dei non eletti avevano le stesse ' +
+    'preferenze (' + ultimo.voti + '): ha deciso ' + (/anni?$/.test(confine)
+      ? 'l\'anzianità, ' + confine + ' contro ' + etichetta(primaRiserva)
+      : confine === 'Sorteggio' ? 'il sorteggio, dopo ' + MAX_BALLOTTAGGI + ' ballottaggi senza esito'
+      : 'il ballottaggio') + '.'] });
+  out.push({ riga: ['Sostituzioni possibili senza deroga: ' + sostituzioni +
+    ' (' + riserveA + ' fra allenatori e "Altro"' +
+    (postiAiuto && riserve.length > riserveA ? ', ' + Math.min(postiAiuto, riserve.length - riserveA) + ' fra gli aiuto allenatore' : '') +
+    '). Esaurite queste, per sostituire un commissario serve una deroga della Commissione Tecnica Nazionale (CTN), ' +
+    'oppure si torna al voto.'] });
+  if (rinunce.length) out.push({ riga: ['Hanno dichiarato che non accetterebbero l\'incarico, e per questo sono in coda ' +
+    'alla graduatoria: ' + rinunce.map(x => x.nome).join(', ') + '. I loro voti restano contati, ma non occupano un posto ' +
+    'e non subentrano in caso di dimissioni.'] });
+  return out;
+}
+
 
 /* ================= Riepilogo per il custode dell'urna ================= */
 
@@ -2034,7 +2887,20 @@ function aggiornaUrna() {
     push(R('Codici usati', used.size));
     push(R('Schede nell\'urna', schede.length,
       schede.length === used.size ? 'Controllo OK: schede = codici usati' : 'ANOMALIA: schede e codici usati non coincidono'));
-    if (inCorso) { push(R('Conteggi e schede visibili dopo la chiusura.')); return; }
+    // Le ricevute si vedono anche a votazione aperta: chi ha votato puo
+    // controllare subito, senza aspettare lo spoglio. Non svelano nulla del
+    // voto - stanno in un elenco separato da quello delle schede, mescolato a
+    // parte - e qui sono in ordine alfabetico, non di arrivo.
+    if (ric && ric.length) {
+      // Una per cella, in griglia sulle quattro colonne: prima stavano tutte
+      // stipate in una cella sola, e per trovare la propria bisognava andare a caccia.
+      push(R('Ricevute di voto — ' + ric.length + (ric.length === 1 ? ' scheda' : ' schede') +
+        ', in ordine alfabetico'), 'b');
+      for (let i = 0; i < ric.length; i += W) push(R.apply(null, ric.slice(i, i + W)));
+      push(R('Ogni votante cerchi qui la ricevuta avuta al momento del voto: trovarla significa che la sua scheda ' +
+        'e nell\'urna ed e stata contata. Non dice come ha votato, e non corrisponde al numero di scheda.'));
+    }
+    if (inCorso) { push(R('Conteggi e schede visibili dopo la chiusura: le ricevute, invece, si vedono gia adesso.')); return; }
     push(R('Schede bianche', schede.filter(s => !s.length).length));
     const voti = {};
     nomi.forEach(n => voti[n] = 0);
@@ -2044,11 +2910,7 @@ function aggiornaUrna() {
       .forEach(n => push(R(n, voti[n], nomi.indexOf(n) < 0 ? 'Non presente tra i candidati' : '')));
     push(R('Scheda n. (ordine casuale)', 'Preferenze'), 'b');
     schede.forEach((s, i) => push(R(i + 1, s.length ? s.join(', ') : '(bianca)')));
-    if (ric && ric.length) {
-      push(R('Ricevute di voto (ordine alfabetico)', ric.join('  ·  '),
-        'Ogni votante trova qui la propria: vuol dire che la sua scheda e nell\'urna ed e stata contata. ' +
-        'La ricevuta non dice come ha votato e non corrisponde al numero di scheda qui sopra.'));
-    }
+
   }
 
   const rAtt = roundAttivo_(c), bAtt = ballottaggioAttivo_(c);
@@ -2188,6 +3050,9 @@ function azzeraElezione_(svuotaAnagrafiche) {
     svuotaFoglio_(ss, SH.SOC, SOC_HEADER);
     svuotaFoglio_(ss, SH.SQ, SQ_HEADER);
     svuotaFoglio_(ss, SH.CAND, CAND_HEADER);
+    svuotaFoglio_(ss, SH.CONF, CONF_HEADER);
+    const chk = ss.getSheetByName(SH.CHK);   // nuova elezione: spunte e note da capo
+    if (chk) chk.clear();
     setCfg_('Formatore di riferimento', '');
   }
   applicaValidazioni_();
@@ -2197,6 +3062,7 @@ function azzeraElezione_(svuotaAnagrafiche) {
 function dopoAzzeramento_() {
   aggiornaReport();
   aggiornaUrna();
+  aggiornaChecklist();
   messaggiSicuro_();
 }
 
@@ -2513,6 +3379,18 @@ function sezione_(c) { return String(c['Sezione Territoriale'] || c['Sezione ter
  * L'indirizzo di posta resta quello dell'account che manda: questo e solo il
  * nome visualizzato accanto.
  */
+/**
+ * Dove le societa mandano candidature e conferme. Non c'e un modulo: basta una
+ * mail alla Sezione Territoriale, che e lo stesso indirizzo da cui parte tutto.
+ * Vuoto in Config vale l'account che possiede il foglio, ma se il foglio viene
+ * aperto da un altro account quello cambia: per questo si puo fissare.
+ */
+function indirizzoST_(c) {
+  const v = String((c || cfg_())[CFG_INDIRIZZO] || '').trim();
+  if (v) return v;
+  try { return Session.getEffectiveUser().getEmail() || ''; } catch (e) { return ''; }
+}
+
 function mittente_(c) {
   const cfg = c || cfg_();
   const m = String(cfg[CFG_MITTENTE] || '').trim();
@@ -2552,7 +3430,7 @@ function scriviLogo_(sh, riga, c) {
   if (!/^https:\/\//i.test(url)) return false;
   sh.getRange(riga, 1).setFormula('=IMAGE(' + SH.CONFIG + '!$B$' + cfgCell_('Logo fogli (PNG)').getRow() + ')')
     .setHorizontalAlignment('center').setVerticalAlignment('middle');
-  sh.setRowHeight(riga, 120);
+  sh.setRowHeight(riga, ALTEZZA_LOGO);
   return true;
 }
 
@@ -2560,6 +3438,7 @@ function scriviLogo_(sh, riga, c) {
 function scriviPiede_(sh, riga, c) {
   const logo = scriviLogo_(sh, riga, c);
   scriviLinkRepo_(sh, riga + (logo ? 1 : 0));
+  if (logo) sh.setRowHeight(riga, ALTEZZA_LOGO);
 }
 
 /** Riporta tutte le righe all'altezza standard (il logo alza la sua riga). */
@@ -2580,6 +3459,8 @@ function altezzeRighe_(sh) {
 const A4_LARGHEZZE = [180, 110, 250, 120];                       // resoconti a 4 colonne
 const A4_RISULTATI = [55, 130, 85, 110, 60, 60, 75, 85];         // "Risultati" (8 colonne)
 const A4_CARICA = [55, 140, 120, 50, 65, 100, 130];              // Presidente e Vice (7 colonne)
+const A4_REPORT = [140, 165, 130, 85, 140];                      // Report, con la graduatoria (5 colonne)
+const ALTEZZA_LOGO = 120;                                        // pixel della riga che contiene il logo
 
 function formatoA4_(sh, righe, larghezze) {
   const colonne = larghezze.length;
@@ -2597,6 +3478,21 @@ function formatoA4_(sh, righe, larghezze) {
     try { sh.getRange(i + 1, 1, 1, colonne).merge(); } catch (e) {}
   });
   try { sh.autoResizeRows(1, n); } catch (e) {}
+  altezzaLoghi_(sh);
+}
+
+/**
+ * Rimette ai loghi la loro altezza. Va fatto DOPO autoResizeRows, che altrimenti
+ * riporta la riga all'altezza del testo - e in una riga che contiene solo una
+ * formula IMAGE il testo non c'e, quindi il logo si schiaccia a una striscia.
+ */
+function altezzaLoghi_(sh) {
+  try {
+    const n = Math.min(Math.max(sh.getLastRow(), 1), sh.getMaxRows());
+    sh.getRange(1, 1, n, 1).getFormulas().forEach((r, i) => {
+      if (/^=IMAGE\(/i.test(String(r[0] || ''))) sh.setRowHeight(i + 1, ALTEZZA_LOGO);
+    });
+  } catch (e) { /* niente formule leggibili: si lascia com'e */ }
 }
 
 function aperta_(c) { return String(c['Stato']).trim().toUpperCase() === 'APERTA'; }
@@ -2615,7 +3511,8 @@ function ballottaggioAttivo_(c) {
 function headers_(sh) {
   const h = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0].map(x => String(x).toLowerCase());
   const find = p => { const i = h.findIndex(x => x.indexOf(p) === 0); return i >= 0 ? i + 1 : 0; };
-  return { nome: find('candidat') || 1, qualifica: find('qualific'), squadra: find('squadr'), anni: find('anni'), email: find('email') };
+  return { nome: find('candidat') || 1, qualifica: find('qualific'), squadra: find('squadr'), anni: find('anni'),
+    email: find('email'), rinuncia: find('rinunc'), note: find('note') };
 }
 
 function candidati_() {
@@ -2633,7 +3530,9 @@ function candidati_() {
       squadra: String(col(r, h.squadra)).trim(),
       auto: /autocand/i.test(String(col(r, h.squadra))),
       anni: Number(col(r, h.anni)) || 0,
-      email: String(col(r, h.email)).trim()
+      email: String(col(r, h.email)).trim(),
+      rinuncia: rinuncia_(col(r, h.rinuncia)),
+      note: String(col(r, h.note)).trim()
     };
   });
 }
@@ -2659,7 +3558,7 @@ function squadre_() {
  */
 function candidatiMancanti_(c) {
   const cfg = c || cfg_();
-  return Math.max(0, posti_(cfg) - candidatiRound_(1, cfg).length);
+  return Math.max(0, posti_(cfg) - candidatiRound_(1, cfg).filter(x => !x.rinuncia).length);
 }
 
 /** Spiegazione unica, per l'avviso in fase di inserimento e per il blocco in apertura. */
@@ -2758,7 +3657,8 @@ function candidatiRound_(r, c) {
   if (r === 1) return candidati_();
   const anni = {};
   candidati_().forEach(x => anni[x.nome] = x.anni);
-  let com = commissari_().map(x => ({ nome: x.nome, qualifica: x.qualifica, squadra: x.squadra, aiuto: false, anni: anni[x.nome] || 0 }));
+  let com = commissari_().map(x => ({ nome: x.nome, qualifica: x.qualifica, squadra: x.squadra, aiuto: false,
+    anni: anni[x.nome] || 0, rinuncia: x.rinuncia }));
   if (r === 3) {
     const pres = String(c['Presidente'] || '').trim();
     if (!pres) return [];
@@ -2780,9 +3680,21 @@ function emailCommissari_() {
 function commissari_() {
   const sh = SpreadsheetApp.getActive().getSheetByName(SH.COM);
   if (!sh || sh.getLastRow() < 2) return [];
-  return sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues()
+  const larg = Math.max(sh.getLastColumn(), 4);
+  return sh.getRange(2, 1, sh.getLastRow() - 1, larg).getValues()
     .filter(r => String(r[0]).trim())
-    .map(r => ({ nome: String(r[0]).trim(), qualifica: String(r[1]).trim(), squadra: String(r[2]).trim(), codice: String(r[3]).trim() }));
+    .map(r => ({ nome: String(r[0]).trim(), qualifica: String(r[1]).trim(), squadra: String(r[2]).trim(),
+      codice: String(r[3]).trim(), rinuncia: rinuncia_(r[8]) }));
+}
+
+/**
+ * Rinuncia: la casella spuntata, oppure un "si"/"x" scritto a mano. Chi rinuncia
+ * resta in elenco e i suoi voti restano contati - sono stati espressi davvero -
+ * ma non occupa il posto: scorre chi viene dopo.
+ */
+function rinuncia_(v) {
+  if (v === true) return true;
+  return /^(si|sì|s|x|v|vero|true|1|rinuncia)$/i.test(String(v == null ? '' : v).trim());
 }
 
 function norm_(c) { return String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }

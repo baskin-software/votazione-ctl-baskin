@@ -1,5 +1,94 @@
 # Changelog
 
+## v42
+- **La procedura è dentro al file.** Nuovo foglio **Checklist**, secondo dopo *Config*: la sequenza completa dall'apertura delle candidature ai posti vacanti, una riga per passo, con la casella da spuntare e una colonna *Note*. Cita le voci di menu con il nome esatto, così non serve tenere aperto il documento a parte proprio il giorno in cui servirebbe già sotto gli occhi.
+- Si rigenera da *Checklist della procedura* e a ogni *Inizializza / aggiorna fogli*, per restare allineata alla versione del programma: **spunte e note vengono conservate**, riconosciute dal testo del passo. *Azzeramenti → Tutto* le azzera, perché una nuova elezione riparte da capo.
+- Impaginata per la stampa in A4 verticale, come il Verbale e il Riepilogo urna.
+- Nuova simulazione `test/simulazione-checklist.js`.
+
+## v41
+- **Le rinunce all'incarico si spuntano nel foglio "Candidati", e basta.** Spuntarle in *Commissari* non serviva a niente: quel foglio è derivato, e *Prepara commissari e link* lo riscrive da capo dagli eletti di *Risultati* — la spunta spariva e il commissario restava. Ora l'avviso lo dice, e la colonna di *Commissari* si chiama **Rinuncia alla carica**, che è l'unica cosa che ha sempre voluto dire: resto commissario, non faccio il Presidente né il Vice. Rinomina automatica, valori intatti.
+- **Le spunte "Rinuncia alla carica" non si perdono più** quando si rigenera il foglio: prima venivano azzerate insieme al resto. Si conservano, come già succedeva per gli indirizzi email.
+- **Prepara commissari e link si ferma** se in *Candidati* c'è una rinuncia che in *Risultati* risulta ancora ELETTO, invece di rigenerare un elenco sbagliato: dice chi, e che prima va rilanciato *Round 1 → Calcola risultati*. Era il passaggio che si saltava.
+- La richiesta di accettazione dell'incarico va ora a **tutti** i commissari in elenco: chi ha rinunciato all'incarico non è più nel foglio, e una rinuncia alla carica non è un motivo per non chiedergli se accetta il posto.
+
+## v40
+- **Preparare non è inviare, e adesso l'avviso lo dice.** Ogni voce che riempie il foglio *Conferme* o il foglio *Messaggi* chiude con una riga in chiaro: nessuna mail è partita, i testi si possono ancora rileggere e le spunte togliere, e la voce di invio chiede conferma mostrando oggetto e destinatari. Il foglio che si riempie di messaggi già spuntati sembrava dire il contrario.
+- L'avviso dei *Messaggi* ricorda anche l'unica eccezione: all'apertura del round l'avviso con il link personale parte da solo.
+
+## v39
+- **La conferma dell'incarico si chiede entro poche ore, non entro giorni.** Il voto per il Presidente è fermo in attesa di quelle risposte, quindi una scadenza larga serve solo a farle arrivare tardi. Nuovo parametro *Config → Ore per confermare l'incarico* (di base 6); il messaggio riporta le ore **e** la data e ora precise — «entro 6 ore, cioè entro il 13/10/2026 19:30» — e spiega perché la finestra è stretta.
+- **Richiesta di candidatura alle società senza commissario**: *Richieste e conferme → Chiedi candidati alle società senza commissario*. Serve quando la graduatoria non basta più — dimissioni a commissione costituita, o troppe rinunce in fase di costituzione: dice quanti posti sono vacanti, che le riserve non bastano, e chiede una candidatura alle sole società non rappresentate. Chi ha rinunciato non copre la sua società, perché il suo posto è vacante. I commissari con una squadra non in elenco vengono segnalati, perché non sono attribuibili a nessuna società.
+- **Richiesta iniziale delle candidature**: *Richieste e conferme → 1. Apri la raccolta delle candidature*, il messaggio che apre tutto il giro. Dice quanti commissari si eleggono, che la candidatura è una per società, cosa deve contenere la mail — nome, qualifica, squadra, anni — e che in commissione entra al massimo un Aiuto allenatore. Chiede un cenno anche a chi non presenta nessuno: senza, si resta ad aspettare una mail che non arriverà.
+- Il sottomenu *Conferme* diventa **Richieste e conferme**, con i tre passi numerati nell'ordine in cui si usano. L'oggetto della mail cambia da solo secondo la richiesta preparata per ultima: raccolta, conferma, accettazione dell'incarico, posto vacante.
+
+## v38
+- **Richiesta di conferma ai commissari eletti**, da mandare prima di aprire il voto per il Presidente: *Conferme → Chiedi ai commissari se accettano l'incarico*. Il messaggio dice che risultano eletti e con quante preferenze, chiede un sì o un no e spiega perché conviene rispondere subito — finché il Presidente non è eletto il posto scorre lungo la graduatoria e non serve rivotare, dopo sì. Niente link di voto dentro.
+- Chi ha già la casella *Rinuncia* spuntata non viene disturbato, e viene elencato a parte.
+- Il foglio "Conferme candidature" diventa **"Conferme"** e ospita entrambe le richieste, con una colonna *Riguarda* che dice di quale si tratta; il sottomenu *Candidature* diventa *Conferme*. Il parametro *Scadenza conferma candidature* diventa *Scadenza per le conferme* e vale per tutte e due. Rinomine automatiche, contenuto intatto.
+
+## v37
+- **L'annotazione del pari merito vale ovunque in graduatoria**, non solo sul confine fra l'ultimo eletto e il primo escluso: fra parentesi compare quello che ha deciso l'ordine — gli anni, il ballottaggio o il sorteggio — anche fra due riserve a pari preferenze, perché quello è l'ordine con cui subentrano.
+- Il confine fra ultimo eletto e primo escluso conserva una riga dedicata sotto la tabella, con i due valori a confronto: è la decisione che più facilmente verrà contestata.
+
+## v36
+- **Il foglio "Report" si chiama "Verbale"**, che è quello che è. Chi arriva da una versione precedente lo trova rinominato da *Inizializza / aggiorna fogli*, con il contenuto intatto; la voce di menu diventa *Aggiorna verbale*.
+- **I fogli vengono rimessi in ordine**: prima i dati da compilare, poi i documenti da leggere, poi quello che serve durante la votazione, infine risultati e messaggi. I fogli non ancora creati si saltano, e un foglio aggiunto a mano resta dov'è.
+- **A pari preferenze fra l'ultimo eletto e il primo dei non eletti**, la graduatoria indica fra parentesi che cosa ha deciso: gli anni di ciascuno — *(4 anni)*, *(2 anni)* — oppure *(Ballottaggio)* o *(Sorteggio)*. Sotto la tabella è ripetuto a parole. Senza, due righe con lo stesso numero di voti ed esiti opposti sembrano un errore di conteggio.
+- Nuova simulazione `test/simulazione-parimerito.js`.
+
+## v35
+- **Le ricevute si vedono anche a votazione aperta**, non più solo dopo lo spoglio: chi ha votato controlla subito che la sua scheda sia nell'urna. Conteggi e schede restano nascosti fino alla chiusura.
+- **Una ricevuta per cella, in griglia sulle quattro colonne.** Prima stavano tutte stipate in un'unica cella larga poco più di un centimetro: c'erano, ma per trovare la propria bisognava andare a caccia — che era poi il motivo per cui sembravano non esserci.
+- Il messaggio ai votanti lo dice: la ricevuta si ritrova nel riepilogo dell'urna **anche prima della chiusura**.
+- Nota onesta nelle istruzioni: a urna aperta il foglio mostra sia chi ha votato sia le ricevute, quindi guardandolo in due momenti si può abbinare un nome a una ricevuta. Non svela come ha votato — ricevute e schede sono in due elenchi separati e mescolati a parte — ma chi preferisce evitarlo aggiorna il Riepilogo urna solo a votazione chiusa.
+
+## v34
+- **Il limite di aiuti allenatore vale anche per lo scorrimento.** Un aiuto subentra solo quando non restano riserve allenatore o `Altro` **e** in commissione ce ne sono meno del limite di *Max aiuti allenatore*. Gli aiuti oltre il limite restano in graduatoria, segnati come subentrabili solo con deroga della Commissione Tecnica Nazionale.
+- **Il Report dice quante sostituzioni reggono senza deroga**, divise fra allenatori e aiuti, e che cosa fare quando finiscono: deroga della CTN oppure nuovo voto. È il numero da avere in mente quando arrivano le dimissioni.
+- Nuova simulazione `test/simulazione-scorrimento.js`.
+
+## v33
+- **Lo scorrimento segue la stessa regola dell'elezione.** Prima la graduatoria ordinava le riserve per sole preferenze: un aiuto allenatore molto votato finiva sopra un allenatore con poche preferenze, e in caso di dimissioni sarebbe subentrato lui — contraddicendo la regola che aveva deciso l'elezione. Ora fra le riserve vengono prima gli allenatori e i candidati di qualifica `Altro`, **anche con una sola preferenza**, e solo quando non ne restano gli aiuto allenatore. La nota sotto la tabella lo dice, e ricorda il limite di aiuti in commissione.
+- **La graduatoria è in tre blocchi dichiarati**: eletti dal più votato in giù, riserve nell'ordine di ripescaggio, rinunce in coda in ordine alfabetico.
+- **La riga del logo torna alta 120 pixel.** L'avevo impostata, ma `autoResizeRows` del formato A4 la riportava subito all'altezza del testo — e in una riga che contiene solo una formula `IMAGE` il testo non c'è, quindi il logo si schiacciava a una striscia. Ora l'altezza si rimette dopo il ridimensionamento, su tutti i fogli e sia in testa sia nel piede.
+
+ v32
+- **Promemoria automatici a chi non ha ancora votato**, a poche ore dalla chiusura programmata: di base 4 ore e 2 ore prima, configurabili in *Config → Solleciti prima della chiusura (ore)* con un elenco di anticipi separati da virgola. Campo vuoto, nessun promemoria.
+  - Va solo a chi non risulta aver votato, con il messaggio di sempre e davanti la riga che spiega perché arriva; l'oggetto dice quanto manca.
+  - Non parte se hanno votato tutti, se la votazione è chiusa o se la chiusura non è programmata.
+  - Si riprogrammano da soli quando la chiusura slitta per proroga, e cadono se chiudi a mano.
+  - A ogni invio ricevi una notifica con chi è stato sollecitato e chi è rimasto senza indirizzo.
+- Nuova simulazione `test/simulazione-solleciti.js`.
+
+## v31
+- **Nella richiesta di conferma c'è l'indirizzo a cui rispondere**, e la precisazione che non serve nessun modulo: basta una mail alla Sezione Territoriale. A chi non ha candidature il messaggio elenca anche cosa scrivere — nome e cognome, qualifica, squadra, anni di tesseramento — così la risposta arriva completa invece di aprire un giro di chiarimenti.
+- Nuovo parametro *Config → Indirizzo per le candidature*. Vuoto vale l'account che possiede il foglio, ma conviene fissarlo: aprendo il foglio con un altro account quell'indirizzo cambierebbe senza darlo a vedere.
+
+## v30
+- **Conferma delle candidature prima dell'apertura**, nuovo sottomenu *Candidature*. Si raccoglie tutto — doppioni, candidature tardive, righe incomplete — si fa confermare a ciascuna società quello che la riguarda, si sistema l'elenco e solo allora si apre il voto.
+  - *Prepara le richieste di conferma* scrive nel foglio "Conferme candidature" un messaggio per società con i suoi candidati **e le loro Note**: quello che scrivi nella colonna Note del foglio "Candidati" finisce nella mail, quindi è lì che si annota «doppione», «requisito mancante», «da verificare».
+  - A chi ha più di un candidato il messaggio ricorda la regola e chiede quale conferma; a chi non ne ha dice che non ne risultano e invita a segnalare un modulo perso — è il modo per accorgersene finché si è in tempo.
+  - Gli autocandidati non compaiono in nessuna mail, perché non appartengono a una società: il programma li elenca a parte perché li confermi direttamente.
+  - *Invia le richieste per email* manda alle righe spuntate in "Da inviare" e poi toglie le spunte, così per sollecitare qualcuno basta rispuntare la sua riga. Queste mail non contengono link di voto.
+- Nuovo parametro *Config → Scadenza conferma candidature*: testo libero, compare nella richiesta.
+- Nuova simulazione `test/simulazione-conferme.js`.
+
+## v29
+- **Graduatoria finale nel Report**, cioè a verbale: tutti i candidati del round 1 in ordine, con preferenze e posizione. È l'ordine di scorrimento se un commissario si dimette, e metterlo nero su bianco il giorno dello spoglio evita di doverlo ricostruire mesi dopo. Ogni riga dice cosa significa quella posizione — *Commissario*, *1° dei non eletti — subentra per primo*, *Rinuncia* — e sotto la tabella la regola è scritta per esteso.
+- **Chi rinuncia va in coda alla graduatoria**, fuori dallo scorrimento; fra più rinunce vale l'ordine alfabetico, perché fra loro non c'è nulla da graduare.
+- **Le rinunce sono verbalizzate**: il Report le elenca per nome, spiegando che i voti restano contati ma il posto non viene occupato.
+- Il Report passa a cinque colonne per ospitare la graduatoria, sempre nel formato A4 verticale.
+
+## v28
+- **Rinuncia di un candidato**, dichiarabile anche a votazione già aperta: una casella nell'ultima colonna del foglio "Candidati". È una decisione di spoglio, non di scheda.
+  - La scheda non cambia e chi ha rinunciato resta votabile fino alla chiusura: toglierlo a urna aperta darebbe schede diverse a chi ha votato prima e a chi vota dopo, e le schede già depositate contengono il suo nome.
+  - I suoi voti restano contati e compaiono nei risultati con esito `RINUNCIA`: sono preferenze espresse davvero, cancellarle falserebbe il controllo «schede = codici usati».
+  - Il posto non va perso: scorre al primo dei non eletti, e *Prepara commissari e link* non lo include.
+  - La stessa casella è nell'ultima colonna del foglio "Commissari", per chi non accetta la Presidenza o il ruolo di Vice.
+  - Chi rinuncia non fa più numero per il vincolo "candidati almeno quanti i posti", e *Inizializza / aggiorna fogli* elenca le rinunce fra gli avvisi.
+- Nuova simulazione `test/simulazione-rinuncia.js`: rinuncia dichiarata a urna aperta, scorrimento del posto, e rinuncia alla carica di Presidente.
+
 ## v27
 - **La riga sulle date parla del round del messaggio, non di quello attivo.** Preparando i messaggi del Presidente mentre era aperto il voto dei Commissari, ai commissari arrivavano le date del round 1. Ora `testoProgramma_` vuole il round di cui parlare e ciascun messaggio porta le proprie.
 - **Prima dell'apertura il messaggio dice entrambe le date**, apertura e chiusura, invece della sola apertura: chi lo riceve sa subito la finestra per intero.

@@ -14,15 +14,21 @@ Funziona con un Foglio Google e Google Apps Script: nessun server da gestire, ne
 - **Codici** nel formato `XXXX-9999` (quattro lettere A–H e quattro cifre), generabili e rigenerabili senza azzerare società, squadre, candidati o voti già espressi.
 - **Formatore di riferimento** indicato senza votazione (votante solo se si candida, con `Autocandidatura` al posto della squadra).
 - **Tre azzeramenti**: *solo i risultati* (si rivota con gli stessi codici e gli stessi link), *tutto* (via anche società, squadre e candidati, per una nuova elezione) e *tutto più dati di prova*. Nessuno tocca la pubblicazione della app web, quindi lo stesso foglio e lo stesso indirizzo servono per tutte le votazioni successive e per quante prove vuoi.
+- **Promemoria automatici**: a poche ore dalla chiusura (di base 4 e 2) chi non ha ancora votato riceve di nuovo il suo link.
+- **Conferma dell'incarico ai commissari eletti** prima del voto per il Presidente: finché quello non è eletto una rinuncia si risolve con lo scorrimento della graduatoria, dopo spesso si deve rivotare.
+- **Conferma delle candidature**: prima di aprire, ogni società riceve l'elenco dei propri candidati con le relative note e lo conferma o lo corregge; chi non ha candidature lo scopre in tempo per rimediare.
+- **Richiesta di candidatura**: il messaggio che apre la raccolta, con i posti in gioco, la regola di una candidatura per società e cosa scrivere nella mail — non esiste nessun modulo. E, quando un posto resta vacante e la graduatoria non basta più, la stessa richiesta rivolta alle sole società che non hanno un proprio commissario in commissione.
+- **Rinuncia**: un candidato può dichiarare, anche a votazione aperta, che non accetterebbe l'incarico. Si spunta nel foglio "Candidati", sempre: resta sulla scheda e i suoi voti si contano, ma il posto scorre al successivo. Chi invece resta commissario e rifiuta solo la Presidenza o il ruolo di Vice si spunta in "Commissari", colonna "Rinuncia alla carica".
 - **Una società, un solo candidato**: la regola è controllata, e il round 1 non si apre finché qualcuno ne presenta due. Gli autocandidati, non tesserati con nessun club, sono esclusi dal conteggio.
 - **Dati di prova** con una voce di menu: società, squadre e candidati inventati (città e personaggi Disney) negli stessi numeri di una Sezione Territoriale reale, per provare il giro completo senza toccare i dati veri.
 - **Ricevuta di voto**: a scheda depositata il votante riceve un codice casuale, da fotografare o trascrivere; a spoglio concluso lo ritrova nel Riepilogo urna e sa che la sua scheda è stata contata, senza che la ricevuta riveli come ha votato.
 - **Ragione sociale e nome breve**: la prima resta per gli atti, il secondo è quello che vedono i votanti nei messaggi, sulla scheda e nei resoconti.
 - **Messaggi pronti**: un foglio con una riga per votante e il testo da copiare e incollare nella chat, link personale e spiegazioni comprese — fra cui che il messaggio si può inoltrare a un'altra persona della società, perché è il codice a identificare il voto.
 - **Email**: una voce di menu manda i messaggi dal proprio account Google, uno per votante e senza copia conoscenza, e un'altra li rimanda solo a chi si spunta nel foglio. Gli indirizzi stanno in "Società" e in "Commissari", anche più d'uno per riga. **All'apertura della votazione l'avviso parte da solo**, con dentro il link personale e la data di chiusura.
-- **Report e Riepilogo urna stampabili in A4 verticale** senza ritocchi.
+- **Verbale e Riepilogo urna stampabili in A4 verticale** senza ritocchi.
 - **Freno sui tentativi**: tre codici sbagliati e il voto da quel dispositivo si sospende per un'ora, con una memoria tecnica del browser che non traccia nulla.
-- **Report** finale e **Riepilogo urna** per il custode, con controllo di coerenza e schede anonime per il riconteggio.
+- **Checklist operativa dentro al foglio**: la procedura dall'apertura delle candidature ai posti vacanti, una riga per passo da spuntare, con le voci di menu citate per nome. Si rigenera a ogni aggiornamento senza perdere spunte e note.
+- **Verbale** finale e **Riepilogo urna** per il custode, con controllo di coerenza e schede anonime per il riconteggio.
 - **Sezione Territoriale** e **anno sportivo** sulla pagina di voto e nei report.
 - Link diretto al codice sorgente, con numero di versione, sulla pagina di voto e in tutti i resoconti, per trasparenza.
 
