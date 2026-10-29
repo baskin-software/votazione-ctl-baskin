@@ -1,8 +1,8 @@
 /**
  * Votazione CTL Baskin — voto online anonimo, un voto per società
- * v42 — Google Apps Script legato a un Foglio Google
+ * v43 — Google Apps Script legato a un Foglio Google
  *
- * Codice sorgente: https://github.com/UncleDan/votazione-ctl-baskin
+ * Codice sorgente: https://github.com/baskin-software/votazione-ctl-baskin
  * Copyright (c) 2026 Daniele Lolli (UncleDan) — Licenza MIT (vedi LICENSE)
  * SPDX-License-Identifier: MIT
  *
@@ -34,8 +34,8 @@ const SH = {
   RP: 'Risultati Presidente', RV: 'Risultati Vice', REP: 'Verbale', URNA: 'Riepilogo urna',
   MSG: 'Messaggi', CONF: 'Conferme'
 };
-const REPO_URL = 'https://github.com/UncleDan/votazione-ctl-baskin';
-const VERSIONE = 'v42';
+const REPO_URL = 'https://github.com/baskin-software/votazione-ctl-baskin';
+const VERSIONE = 'v43';
 const LOGO_SVG = 'https://eisi.it/wp-content/uploads/2026/09/logo-eisi-epp-cip.svg';
 const LOGO_PNG = 'https://eisi.it/wp-content/uploads/2026/09/logo-eisi-epp-cip.png';
 const PROPRIETA_LOGO = 'Logo © Ente Italiano Sport Inclusivi (EISI), tutti i diritti riservati';
@@ -1531,7 +1531,7 @@ function usaInterfacciaSemplice() { cambiaInterfaccia_('Semplice'); }
 function usaInterfacciaHtml() {
   const ui = ui_(), c = cfg_();
   const r = ui.prompt('Pagina web di voto',
-    'Indirizzo della pagina su GitHub Pages (per esempio https://uncledan.github.io/votazione-ctl-baskin/).' +
+    'Indirizzo della pagina su GitHub Pages (per esempio https://baskin-software.github.io/votazione-ctl-baskin/).' +
     (urlHtml_(c) ? '\n\nLascia vuoto per tenere quello attuale:\n' + urlHtml_(c) : ''),
     ui.ButtonSet.OK_CANCEL);
   if (r.getSelectedButton() !== ui.Button.OK) return;
